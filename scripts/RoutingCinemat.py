@@ -20,23 +20,22 @@
  *                                                                         *
  ***************************************************************************/
 
-Lo script, assegnato un ID_Diga calcola la propagazione dell'onda di piena
-con il metodo di Cinematico + Onda a Fronte ripido
+The script, assigned a DamID calculates the propagation of the flood wave
+using kinematic model and propagation of steep waves theories
 
-Legge i coeffienti ed esponenti delle caratteristiche geometriche ed idrauliche
-dei vari tratti dal file:
+Reads the coefficients and exponents of the geometrical and hydraulic characteristics
+of the various river reaches from the file:
     - MatriceAexp.csv
 
-Calcola l'idrogramma di piena alla prima sezione di monte
+Calculate the flood hydrogram at the first upstream section
 
-A partire dal primo tratto calcola per ogni intervallo temporale la propagazione
-della portata instantanea nel tratto ed il punto in cui raggiunge il fronte.
-Calcola l'idrogramma in uscita dal tratto e lo utilizza come input per il tratto
-successivo.
+Starting from the first section, it calculates the propagation for each time interval
+of the instantaneous flow rate in the reach and the point where it reaches the front.
+Calculates the output hydrogram from the reach and uses it as input for the next reach.
 
-Fa il grafico dell'inviluppo delle portate ed altezze massime lungo la progressiva
+Makes the graph of the maximum flow rate and water depth along the progressive distance
 
-Salva i risultati nel file:
+Save results to file:
     - Q_H_max.csv
 
 """
@@ -52,11 +51,9 @@ except:
 
 try:
     from osgeo import ogr
-    # importa i sistemi di riferimento
     from osgeo.osr import osr
 except:
     import ogr
-    # importa i sistemi di riferimento
     import osr
 
 import matplotlib.pyplot as plt
@@ -66,43 +63,38 @@ import csv
 
 def DamBreakHyrograph(VolumeInvaso,AltezzaDiga,LarghezzaSezioneRottura,NomeDiga):
     """
-    Calcolo idrogramma di dambreak
+    Evaluation of the dambreak hydrograph:
     -------------------------------------
-    VolumeInvaso            : in milioni mc
-    AltezzaDiga             : in metri
-    LarghezzaSezioneRottura : metri
-    NomeDiga                : nome della diga
+    VolumeInvaso            : Reservoir volume in millions of cubic meters
+    AltezzaDiga             : height of the dam in meters
+    LarghezzaSezioneRottura : Width of the breach in meters
+    NomeDiga                : name of the dam
     """
-    # passo a mc
+    # form Mmc to mc
     VolumeInvaso=VolumeInvaso*10**6
 
-    # curva invaso : V=k*h^alfa
-    # =========================
+    # reservoir volume curve : V=k*h^alfa
+    # ====================================
     alfa=1.5
     kinvaso=VolumeInvaso/(AltezzaDiga**alfa)
 
     Vcurr=VolumeInvaso
     Vfin=VolumeInvaso*0.001
 
-    # calcolo portata per crollo istantaneo
+    # flow calculation for instant collapse
 	# ====================================
-	# accelerazione di gravita'
+	# gravity acceleration
     G=9.81
-    # altezza alla sezione di rottura (Marchi Rubatta - MECCANICA DEI FLUIDI - UTET , Torino 1981 - pag 718-719)
-    # corrisponde alla massima portata defluibile nell'ipotesi di eliminazione istantanea di una paratoria
-    # che sorreggeva una colonna d'acqua ferma
+
     Yc=4.0/9.0*AltezzaDiga
-    # portata massima da un lago inizialmente in quiete
-    # e' inferiore a quella di una corrente gia' in moto permanente
+
     Qmax=8.0/27.0*LarghezzaSezioneRottura*AltezzaDiga*(G*AltezzaDiga)**0.5
 
     Vmax=Qmax/(Yc*LarghezzaSezioneRottura)
-##    txt='Lbreccia=%.1f,  Yc=%.2f  , Qmax= %.1f , Vmax=%.2f' % (LarghezzaSezioneRottura,Yc,Qmax,Vmax)
-##    print (txt)
 
-    # Carico totale teorico nell'ipotesi di moto permanente
+    # Total theoretical energy height in the hypothesis of permanent motion
     Htot=Yc+Vmax**2/2./G
-    # volume teorico alla quota del carico totale teorico
+    # volume
     Vol_Htot=kinvaso*Htot**alfa
 
     dt=60.0
@@ -111,13 +103,10 @@ def DamBreakHyrograph(VolumeInvaso,AltezzaDiga,LarghezzaSezioneRottura,NomeDiga)
     T=0.0
     Time.append(T)
     Idrogramma.append(Qmax)
-    # assumo che la portata rimanga costante fino a quando il volume istantaneo
-    # dell'invaso (Vcurr) diminuendo per effetto dello svuotamento non sia
-    # inferiore a quello teorico che darebbe la stessa Qmax qualora il moto
-    # fosse permanente
+
     while Vcurr>=Vol_Htot:
         dv=-Qmax*dt
-        # aggiorna il volume d'invaso
+        # update volume
         Vcurr+=dv
         if Vcurr<0.0:
             while Vcurr<0.0:
@@ -130,24 +119,21 @@ def DamBreakHyrograph(VolumeInvaso,AltezzaDiga,LarghezzaSezioneRottura,NomeDiga)
         Time.append(T)
 
     alfa_1=1.0/alfa
-    # altezza d'invaso che corrisponte al volume istantaneo Vcurr
+    # water depth
     hcurr=math.pow((Vcurr/kinvaso),alfa_1)
 
     hmin=0.5
-    # hcurr: livello d'invaso corrente e pari all'energia della corrente
-    # in moto permanente
-    # da questo istante calcolo la portata nell'ipotesi di altezza critica
-    # nella sezione di rottura
+
     while hcurr>hmin:
-        # profondita' critica per sezione rettangolare
+        # critical depth for rectangular section
         Yc=2.0/3.0*hcurr
-        # velocita' critica per sezione rettangolare
+        # critical speed for rectangular section
         Uc=math.sqrt(G*Yc)
-        # portata critica per sezione rettangolare
+        # critical flow rate for rectangular section
         Qc=Uc*Yc*LarghezzaSezioneRottura
-        # volume rilasciato nell'unita' di tempo
+        # volume released in time unit
         dv=-Qc*dt
-        # aggiorna il volume d'invaso a fine dt
+        # update the volume at the end of dt
         Vcurr+=dv
         if Vcurr<0.0:
             while Vcurr<0.0:
@@ -158,19 +144,14 @@ def DamBreakHyrograph(VolumeInvaso,AltezzaDiga,LarghezzaSezioneRottura,NomeDiga)
         Idrogramma.append(Qc)
         T+=dt
         Time.append(T)
-        # aggiorna il livello d'invaso a a fine dt
+        # update the water depth at the end of dt
         hcurr=math.pow((Vcurr/kinvaso),alfa_1)
 
-    # calcola volume idrogramma
+    # calculate hydrogram volume
     Vol=0.0
     nn=len(Idrogramma)
     for i in range(1,nn):
-        # volume secondo il grafico (approssimato in eccesso!)
         Vol+=(Time[i]-Time[i-1])*(Idrogramma[i]+Idrogramma[i-1])/2.0
-        # volume congruente con l'approssimazione di calcolo (grafico portata a gradini)
-##        Vol+=(Time[i]-Time[i-1])*Idrogramma[i]
-##    txt='Volume Idrogramma = %d' % (Vol)
-##    print (txt)
 
     grafico=0
     if grafico>0:
@@ -193,10 +174,7 @@ def DamBreakHyrograph(VolumeInvaso,AltezzaDiga,LarghezzaSezioneRottura,NomeDiga)
 
 
 def ValoreInX(x,n,datix,datiy):
-    # data una funzione con ascisse datix ed ordinate datiy
-    # si calcola, per interpolazione, il valore di y nell'ascissa x
-    # se x e' minore di datix[0] alloca y vale datiy[0]
-    # de x e' maggiore di datix[-1] allora y vale datiy[-1]
+
     nx=len(datix)
     ny=len(datiy)
     if nx==ny:
@@ -215,8 +193,7 @@ def ValoreInX(x,n,datix,datiy):
 
     return y
 
-##def run_script(iface,ListaDati):
-def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
+def RunCinemat(mydb_path_user,DamID,PathFiles,grafico2):
 
     """
     Run Cinemat model for routing flood downstream
@@ -234,7 +211,7 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
     PathFiles=os.path.realpath(PathFiles)
 
     if not os.path.exists(PathFiles):
-        errMsg = "Non ci sono dati per la diga num =%s \nEffettuare prima il calcolo delle sezioni a valle !" % (ID_Diga)
+        errMsg = "Non ci sono dati per la diga num =%s \nEffettuare prima il calcolo delle sezioni a valle !" % (DamID)
         NotErr= bool()
         return NotErr, errMsg
 
@@ -256,8 +233,7 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
 
     NomeTabella='DAMS'
 
-    # leggo i dati della diga dal database
-    sql='SELECT Volume_mlnm3,Altezza_m,Breccia_m,Nome FROM %s WHERE ID_Diga=%d' % (NomeTabella,ID_Diga)
+    sql='SELECT ResVolMcm,Height_m,BreachWidth,Name FROM %s WHERE DamID=%d' % (NomeTabella,DamID)
     cur.execute(sql)
     DatiDiga=cur.fetchone()
 
@@ -265,23 +241,21 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
 
         VolumeInvaso=float(DatiDiga[0])
 
-        # AltezzaDiga
+        # height of the dam
         AltezzaDiga = float(DatiDiga[1])
 
-        # LarghezzaSezioneRottura
+        # Width of the breach
         LarghezzaSezioneRottura = float(DatiDiga[2])
 
-        # Nome della diga
+        # Name of the dam
         NomeDiga=DatiDiga[3]
 
     else:
-        errMsg = 'Nella tabella= %s non ci sono dati per la diga num =%s \nEffettuare prima il salvataggio dei dati !' % (NomeTabellaTest,ID_Diga)
+        errMsg = 'In the table= %s there is no data for the dam num =%s \nPerform data saving first !' % (NomeTabellaTest,DamID)
         NotErr= bool()
         return NotErr, errMsg
 
-    # lettura i dati per il calcolo dei parametri delle grandezze geometriche
-    # ed idrauliche
-    # lettura dal database
+    # reading the data for the calculation
     NomeTabellaMatrice='MatriceAexp'
 
     sql='SELECT '
@@ -297,7 +271,7 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
     sql+=', kcel'
     sql+=', mcel'
     sql+=' FROM %s' % NomeTabellaMatrice
-    sql+=' WHERE ID_Diga=%d' % (ID_Diga)
+    sql+=' WHERE DamID=%d' % (DamID)
     sql+=' ORDER BY PixDist;'
     cur.execute(sql)
     MatriceDati=cur.fetchall()
@@ -305,7 +279,7 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
     ListaTratti=[]
     Progressive_fiume=[]
     Distanze_fiume=[]
-    # matrice dei coefficienti: ka;ma;kq;mq;kcel;mcel per ogni tratto
+    # coefficient matrix: ka;ma;kq;mq;kcel;mcel for every reach
     MatriceCoeff=[]
     for row in MatriceDati:
         ListaTratti.append(int(row[0]))
@@ -314,13 +288,13 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
         MatriceCoeff.append(row[3:])
 
 
-    # Calcolo dell'idrogramma di piena
+    # Calculation of the flood hydrograph
     # ................................
 
     Idrogramma, T = DamBreakHyrograph(VolumeInvaso,AltezzaDiga,LarghezzaSezioneRottura,NomeDiga)
 
 
-    # il primo input corrisponde all'idrogramma alla sezione iniziale
+    # the first input corresponds to the hydrograph at the initial section
     Qin=numpy.array(Idrogramma,dtype =numpy.float)
     maxQ=Qin.max()
 
@@ -329,25 +303,21 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
 
     numtime=len(Qin)
 
-    # liste dei tempi, distanze e dell'inviluppo della portata massima lungo il fiume
+    # lists of times, distances and the envelope of the maximum flow along the river
     TQX=[]
-    # distanza lungo la linea retta
     XQX=[]
-    # portata
     QX=[]
-    # altezza d'acqua
+    # Water depth
     HX=[]
-    # larghezza pelo libero
+    # water width
     BX=[]
-    # velocita
+    # water velocity
     VX=[]
 
     TrattoX=[]
     PendX=[]
     TQX.append(T[0])
-    # vettore distanze in linea retta
     XQX.append(0.0)
-    # vettore distanze lungo l'asse del fiume
     Progr_fiume=[]
     Progr_fiume.append(0.0)
 
@@ -355,25 +325,24 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
     TrattoX.append(0)
     PendX.append(MatriceCoeff[0][1])
 
-    # coeff. ed esponente della formula monomia della portata Q=kq*h^mq
+    # coeff. and exponent of the formula monomer of the flow Q=kq*h^mq
     kq=float(MatriceCoeff[0][4])
     mq=float(MatriceCoeff[0][5])
     invmq=1.0/mq
     h_0=math.pow(Qin[0]/kq,invmq)
     HX.append(h_0)
 
-    # Larghezza pelo libero = ka*ma*h^(ma-1)
+    # water width = ka*ma*h^(ma-1)
     # ----------------------------------------------------
-    # coeff. ed esponente della formula monomia dell'area
     ka=float(MatriceCoeff[0][2])
     ma=float(MatriceCoeff[0][3])
 
-    # calcolo larghezza pelo libero
+    # water width calculation
     mb=ma-1.0
     b_0=ka*ma*math.pow(h_0,mb)
     BX.append(b_0)
 
-    # velocita
+    # velocity
     # ------------------
     A_0=ka*math.pow(h_0,ma)
     if A_0>0:
@@ -384,7 +353,7 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
     VX.append(V_0)
 
 
-    # impostazioni per il grafico
+    # settings for the chart
     #============================
     fontP = FontProperties()
     fontP.set_size('small')
@@ -393,54 +362,54 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
     Progr_fiume.append(0.0)
 
 
-    # ciclo lungo i tratti di fiume
+    # cycle along the river reaches
     # -------------------------------
     for i in range(nn):
 
-        # ascissa ed istanti del punto iniziale del tratto precedente
+        # abscissa and instants of the initial point of the previous reach
         xini=XQX[-1]
         xini_fiume=Progr_fiume[-1]
 
         tini=TQX[-1]
-        # ascissa a partire dall'inizio del tratto
+        # abscissa from the beginning of reach
         x=0.0
         xfronte=0.0
 
-        # coefficienti kx ed esponenti mx di parametri geometrici ed idraulici dei tratti
+        # kx and mx coefficients of geometric and hydraulic reach parameters
         tratto=ListaTratti[i]
 
-        # distanza in linea retta: utilizzata per il calcolo della propagazione
+        # distance in a straight line: used for calculating the propagation
         distanza=float(MatriceCoeff[i][0])
 
-        # lettura distanza sul fiume
+        # reading distance on the river
         Progr_curr=Progressive_fiume[i]
         Parz_curr=Distanze_fiume[i]
-        # rapporto fra la distanza lungo l'asse del fiume e la distanza in linea retta
+        # relationship between the distance along the river axis and the distance in a straight line
         Amplificazione=Parz_curr/distanza
 
-        # pendenza
+        # slope
         pend=float(MatriceCoeff[i][1])
-        # coeff. ed esponente della formula monomia dell'area
+        # coeff. and exponent of the area monomular formula
         ka=float(MatriceCoeff[i][2])
         ma=float(MatriceCoeff[i][3])
-        # coeff. ed esponente della formula monomia della portata Q=kq*h^mq
+        # coeff. and exponent of the monomer flow rate formula Q=kq*h^mq
         kq=float(MatriceCoeff[i][4])
         mq=float(MatriceCoeff[i][5])
-        # coeff. ed esponente della formula monomia della celerita'
+        # coeff. and exponent of the monomy formula of celerity
         kcel=float(MatriceCoeff[i][6])
         mcel=float(MatriceCoeff[i][7])
 
-        # parametri per il calcolo della larghezza del pelo libero B=dA/dh
+        # parameters for calculating the water width B=dA/dh
         # ----------------------------------------------------------------
         # B=ka*ma*h^(m-1) = kb*h^mb
         kb=ka*ma
         mb=ma-1.0
 
-        # calcolo del Dt
-        # ..............
+        # calculation of the  Dt
+        # ......................
         t=T[0]
         tau=T[0]
-        # calcolo l'altezza corrispondente
+        # calculate the corresponding water depth
         invmq=1.0/mq
 
         for k in range(1,numtime):
@@ -452,58 +421,58 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
 
             h_tau=math.pow(Qtau/kq,invmq)
             h_tau1=math.pow(Qtau1/kq,invmq)
-            # calcolo dQ/dA a tau costante = celerita'
+            #  dQ/dA for tau cost = celerity
             Qprimo=kcel*math.pow(h_tau,mcel)
-            # calcolo di dQ/dA^2 a tau costante = derivata della celerita'
+            # dQ/dA^2 for tau cost = derivative of celerity
             mcel2=mcel-1.0
             Qseconda=kcel*mcel*math.pow(h_tau,mcel2)
-            # calcolo A(tau)
+            # computation A(tau)
             Atau=ka*math.pow(h_tau,ma)
             Atau1=ka*math.pow(h_tau1,ma)
-            # calcolo dA/dtau
+            # computation dA/dtau
             dA=(Atau1-Atau)/dtau
-            # calcolo Vfronte che su alveo asciutto (cioe' Qo=0) vale Vfronte=Qtau/Atau
+            # Vfronte calculation that on dry riverbed (ie Qo = 0) is Vfronte = Qtau / Atau
             Vfronte=Qtau/Atau
-            # quindi calcolo dt
+            # then dt calculation
             numerat=Qseconda*dA*x/Qprimo-Qprimo
             denom=-Qprimo+Vfronte
             dt=numerat/denom*dtau
-            # calcolo dx
+            # dx calculation
             dx=dt*Vfronte
 
-            # controllo la distanza percorsa
+            # check the distance traveled
             if (x+dx)>distanza:
-                # calcola i tempi per giungere a fine tratto
+                # calculates the times to reach the end of the section
                 dx1=distanza-x
                 dt1=dx1/Vfronte
                 dtau1=denom/numerat*dt1
                 t1=t+dt1
                 tau1=tau+dtau1
-                # portata all'istante tau1
+                # flow at instant tau1
                 Q1=ValoreInX(tau1,numtime,T,Qin)
                 h_1=math.pow(Q1/kq,invmq)
-                # calcolo larghezza pelo libero
+                # calculating the water width
                 b_1=kb*math.pow(h_1,mb)
 
-                # calcola la celerita'
+                # calculating celerity
                 c1=kcel*math.pow(h_1,mcel)
 
-                # calcola l'idrogramma in uscita dal tratto
+                # calculates the hydrograph leaving the reach
                 Tout=[]
                 Qout=[]
                 Tout.append(t1)
                 Qout.append(Q1)
 
-                # inserisce un nuovo punto nella curva TQX
+                # inserts a new point in the TQX curve
                 TQX.append(t1)
                 x1=xini+distanza
                 XQX.append(x1)
 
-                # aggiornamento distanza progressiva lungo l'asse del fiume
+                # progressive distance upgrade along the river axis
                 x1_fiume=xini_fiume+distanza*Amplificazione
                 Progr_fiume.append(x1_fiume)
 
-                # salva i risultati nelle rispettive liste
+                # save the results in the respective lists
                 QX.append(Q1)
                 HX.append(h_1)
                 BX.append(b_1)
@@ -517,7 +486,7 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
                 TrattoX.append(tratto)
                 PendX.append(pend)
 
-                # cerca nell'idrogramma il punto successivo a tau1
+                # look for the next point in tau1 in the hydrograph
                 for kk in range(1,numtime):
                     if T[kk]>tau1:
                         k1=kk
@@ -527,9 +496,9 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
                     tau1=tau1+dttau
                     Q2=ValoreInX(tau1,numtime,T,Qin)
                     h_2=math.pow(Q2/kq,invmq)
-                    # calcola la celerita'
+                    # calculating celerity
                     c2=kcel*math.pow(h_2,mcel)
-                    # differenza temporale dei due punti dell'idrogramma alla fine del tratto
+                    # time difference of the two points of the hydrograph at the end of the section
                     dtt=(1.0/c2-1.0/c1)*dx1+dttau
 
                     t1=t1+dtt
@@ -540,25 +509,24 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
                 break
 
             else:
-                # caso in cui non e' stato raggiunta la fine del tratto
+                # case in which the end of reach was not reached
                 x=x+dx
-                # caso in cui non e' stato raggiunta la fine del tratto
                 tau=tau+dtau
                 t=t+dt
-                # inserisce un nuovo punto nella curva TQX
+                # inserts a new point in the TQX curve
                 TQX.append(t)
                 x1=xini+x
                 XQX.append(x1)
-                # aggiornamento distanza progressiva lungo l'asse del fiume
+                # progressive distance upgrade along the river axis
                 x1_fiume=xini_fiume+x*Amplificazione
                 Progr_fiume.append(x1_fiume)
 
                 Q1=ValoreInX(tau,numtime,T,Qin)
                 h_1=math.pow(Q1/kq,invmq)
-                # calcolo larghezza pelo libero
+                # water width calculation
                 b_1=kb*math.pow(h_1,mb)
 
-                # salva i risultati
+                # save results
                 QX.append(Q1)
                 HX.append(h_1)
                 BX.append(b_1)
@@ -573,41 +541,41 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
                 PendX.append(pend)
 
                 # -----------------------------------
-                # controllo se terminato l'idrogramma
+                # check if the hydrograph has ended
                 # -----------------------------------
                 if k> (numtime-2):
 
-                    # calcola i tempi per giungere a fine tratto
+                    # calculates the times to reach the end of reach
                     dx1=distanza-x
                     dt1=dx1/Vfronte
                     dtau1=denom/numerat*dt1
                     t1=t+dt1
                     tau1=tau+dtau1
-                    # portata all'istante tau1
+                    # flow at instant tau1
                     Q1=ValoreInX(tau1,numtime,T,Qin)
                     h_1=math.pow(Q1/kq,invmq)
-                    # calcolo larghezza pelo libero
+                    # water width calculation
                     b_1=kb*math.pow(h_1,mb)
 
-                    # calcola la celerita'
+                    # calculate the celerity
                     c1=kcel*math.pow(h_1,mcel)
 
-                    # calcola l'idrogramma in uscita dal tratto
+                    # calculates the hydrograph leaving the reach
                     Tout=[]
                     Qout=[]
                     Tout.append(t1)
                     Qout.append(Q1)
 
-                    # inserisce un nuovo punto nella curva TQX
+                    # inserts a new point in the TQX curve
                     TQX.append(t1)
                     x1=xini+distanza
                     XQX.append(x1)
 
-                    # aggiornamento distanza progressiva lungo l'asse del fiume
+                    # progressive distance upgrade along the river axis
                     x1_fiume=xini_fiume+distanza*Amplificazione
                     Progr_fiume.append(x1_fiume)
 
-                    # salva i risultati nelle rispettive liste
+                    # save the results in the respective lists
                     QX.append(Q1)
                     HX.append(h_1)
                     BX.append(b_1)
@@ -621,7 +589,7 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
                     TrattoX.append(tratto)
                     PendX.append(pend)
 
-                    # estende la lunghezza dell'idrogramma
+                    # extends the length of the hydrograph
                     Tout.append(t1+1000.0)
                     Qout.append(Q1)
 
@@ -629,9 +597,9 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
 
         grafico1=0
         if grafico1>0:
-            # grafico
+            # praph
             fig1 = figure()
-            # crea il riquadro principale
+
             ax1 = fig1.add_subplot(111)
             ax1.plot(T,Qin,'-')
             ax1.plot(Tout,Qout,'-')
@@ -645,36 +613,33 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
             ax1.grid(True)
             ax1.set_ylabel('Q (mc/s)')
             ax1.set_xlabel('Time (hrs)')
-            Titolo='Metodo CINE applicato al tratto %d distanza pixel n: %d  x=%.3f' % (i+1,tratto,x)
+            Titolo='CINE method applied to reach %d distance pixel n: %d  x=%.3f' % (i+1,tratto,x)
 
             suptitle(Titolo, fontsize=16,fontstyle='italic')
 
             show()
 
-        # assegna l'idrogramma uscente in input al tratto successivo
+        #assigns the outgoing idrograph to input to the next reach
         Qin=numpy.array(Qout,dtype =numpy.float)
         T=numpy.array(Tout,dtype =numpy.float)
         numtime=len(T)
 
     if grafico2>0:
 
-        # grafico QX
+        # graph QX
         fig1 = figure()
-        # crea il riquadro principale
+
         ax1 = fig1.add_subplot(111)
-##        ax1.plot(XQX,QX,'o-')
         ax1.plot(Progr_fiume,QX,'o-')
         nomi=[]
         nomi.append('QX')
 
         ax2 = ax1.twinx()
-##        ax2.plot(XQX,HX,'-r')
         ax2.plot(Progr_fiume,HX,'-r')
 
         nomi2=[]
         nomi2.append('HX')
 
-##        PosizoneLegenda = 'best'
         PosizoneLegenda = 'upper left'
         leg = ax1.legend((nomi), loc=PosizoneLegenda,
          shadow=True,prop = fontP)
@@ -687,21 +652,20 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
         ax1.set_ylabel('Qmax (mc/s)')
         ax2.set_ylabel('Hmax (m)')
         ax1.set_xlabel('x (m)')
-        Titolo='Laminazione della portata con la distanza'
+        Titolo='Peak flow rate reduction with distance'
 
         suptitle(Titolo, fontsize=16,fontstyle='italic')
-        #title(Titolo,fontstyle='italic')
 
         show()
 
-    # salva i risultati
+    # save the results
     # --------------------------
 
     NomeTabella='Q_H_max'
 
-    # cancella eventuali dati pregressi
+    # cancel any previous data
     # ---------------------------------
-    sql='DELETE FROM %s WHERE ID_Diga=%d' % (NomeTabella,ID_Diga)
+    sql='DELETE FROM %s WHERE DamID=%d' % (NomeTabella,DamID)
     cur.execute(sql)
     conn.commit()
 
@@ -714,8 +678,8 @@ def RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2):
         txt='%d;%.2f;%.2f;%s;%.2f;%.2f;%.2f;%.2f;%.2f\n' %(TrattoX[i],Progr_fiume[i],XQX[i],PendX[i],QX[i],HX[i],BX[i],VX[i],TQX[i])
         fout.write(txt)
 
-        sql='INSERT INTO %s (ID_Diga' % (NomeTabella)
-        sql_value=') VALUES (%d' % ID_Diga
+        sql='INSERT INTO %s (DamID' % (NomeTabella)
+        sql_value=') VALUES (%d' % DamID
         sql_value+=',%d,%.2f,%.2f,%s,%.2f,%.2f,%.2f,%.2f,%.2f' %(TrattoX[i],Progr_fiume[i],XQX[i],PendX[i],QX[i],HX[i],BX[i],VX[i],TQX[i])
         sql+=', PixDist'
         sql+=', Progr_fiume'
@@ -746,11 +710,11 @@ if __name__ == '__main__':
     mydb_path_user='..'+ os.sep+'db'+os.sep+'USER_GeoDB.sqlite'
 
     # San Giuliano
-    ID_Diga=449
-    PathFiles='..'+ os.sep+ str(ID_Diga)
+    DamID=449
+    PathFiles='..'+ os.sep+ str(DamID)
 
     grafico2=1
-    NotErr, errMsg= RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2)
+    NotErr, errMsg= RunCinemat(mydb_path_user,DamID,PathFiles,grafico2)
 
     print(NotErr,errMsg)
 

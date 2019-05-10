@@ -18,34 +18,33 @@
  *                                                                         *
  ***************************************************************************/
 
-Lo script legge:
-    - lo shape file dei punti di intersezione delle sezioni con l'asse del fiume
-      ed i punti sull'asse ove richiesto la creazione delle sezioni interpolate
-    - lo shape file delle sezioni da cui interpolare
-    - lo shape file del contorno del dominio
-    - il grid del DTM_clip
-crea:
+Thee script reads:
+    - the shapefile of the intersection points of the cross sections with the river path
+      and the points on the axis where the creation of the interpolated sections is required
+    - the shapefile of the main cross-sections from which to interpolate
+    - the shapefile of the domain outline
+    - the grid of DTM_clip
 
-    - lo shape file delle sezioni totali (originali ed interpolate) clippate lungo
-      il contorno del dominio
+creates:
 
-    - uno shape file poligonale composto da trapezi fra una sezione e la successiva
+    - the shapefile of the total cross sections (original and interpolated) clipped
+      along the outline of the domain
 
-    - un grid con la classificazione delle celle secondo l'id dei poligoni che
-      corrisponde al numero di celle lungo l'asse del fiume distanti dal punto
-      iniziale
+    - a polygonal shapefile composed of trapezoids between a cross section and the next one
 
-    - un grid Tratti.tif con le classi dei tratti di fiume a partire dalla diga
-      il numero del tratto rappresenta in numero di celle di
-      distanza contate lungo l'asse del fiume
+    - a grid with the classification of the cells according to the id of the polygons that
+      corresponds to the number of cells along the river path distant from the start point
 
-    - uno shape file poligonale composto da trapezi fra una sezione e la successiva
-      dividendo il trapezio in sinistra (lato=0) e destra (lato=1)
+    - a grid Tratti.tif with the river reach classes starting from the dam
+      the reach number represents in number of cells of distance counted along the river path
 
-    - un grid DestraSinistra.tif con l'indicazione se la cella si trova a
-      sinistra (=0) o a destra (=1) del fiume
+    - a polygonal shapefile composed of trapezoids between a cross section and the next one
+      dividing the trapezoid on the left (side = 0) and right (side = 1)
 
-    - un grid StreamDH con in valori delle altezze del terreno rispetto al fiume
+    - a grid DestraSinistra.tif with an indication of whether the cell is located at
+      left (= 0) or right (= 1) of the river
+
+    - a grid StreamDH with in values of the heights of the ground with respect to the river
 """
 import os, sys
 import numpy
@@ -65,11 +64,9 @@ except ImportError:
 
 try:
     from osgeo import ogr
-    # importa i sistemi di riferimento
     from osgeo.osr import osr
 except:
     import ogr
-    # importa i sistemi di riferimento
     import osr
 import numpy as np
 import math
@@ -78,72 +75,29 @@ import time
 import scipy.interpolate as il
 
 def isLeft(a,b,c):
-    # controlla se il punto c(x,y) e' a sinistra del segmento a-b
+    # check if the point c (x, y) is to the left of the segment a-b
     position=((b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]))
 
     return 1*numpy.sign(position)
 
-##def SezioneInterpolata(pt_curr,SezMonteGeom,SezValleGeom):
-##
-##
-##    # Meta' lunghezza sezione di monte
-##    Length=SezMonteGeom.Length()/2.0
-##
-##    # calcola la geometria interpolata
-##    # --------------------------------
-##    p1 = numpy.array( [SezMonteGeom.GetX(0), SezMonteGeom.GetY(0)] )
-##    p2 = numpy.array( [SezMonteGeom.GetX(1), SezMonteGeom.GetY(1)] )
-##
-##    p3 = numpy.array( [SezValleGeom.GetX(0), SezValleGeom.GetY(0)] )
-##    p4 = numpy.array( [SezValleGeom.GetX(1), SezValleGeom.GetY(1)] )
-##
-##
-##    # intersezione delle due sezioni di monte e valle
-##    # -------------------------------------------------
-##    # questo e' il punto a cui deve convergere la sezione interpolata
-##    # e puo' trovarsi in destra o sinistra a seconda della curvatura
-##    # dell'asse del fiume
-##    Intersect_0=seg_intersect( p1,p2, p3,p4)
-##
-##    p1 = numpy.array( [pt_curr.GetX(0), pt_curr.GetY(0)] )
-##    p2 = numpy.array( [Intersect_0[0], Intersect_0[1]] )
-##
-##    p3 = numpy.array( [SezMonteGeom.GetX(0), SezMonteGeom.GetY(0)] )
-##    p4 = numpy.array( [SezValleGeom.GetX(0), SezValleGeom.GetY(0)] )
-##
-##    # primo punto della sezione interpolata  : quello in sinistra
-##    Intersect_1=seg_intersect( p1,p2, p3,p4)
-##
-##    p3 = numpy.array( [SezMonteGeom.GetX(1), SezMonteGeom.GetY(1)] )
-##    p4 = numpy.array( [SezValleGeom.GetX(1), SezValleGeom.GetY(1)] )
-##
-##    # secondo punto della sezione interpolata : quello in destra
-##    Intersect_2=seg_intersect( p1,p2, p3,p4)
-##
-##    # estende la lunghezza della sezione
-##    # -----------------------------------
-##    GeomNew=SetCrossSecPointDiretion(p1,Length,Intersect_1,Intersect_2)
-##
-##
-##    return GeomNew
 
 def CheckVerso(distBufferClip,inters_destra,pt_interes_sez,line_select):
 
-    # controllo il verso della linea
+    # control the line direction
 
     if inters_destra:
-        # controllo distanza a destra
+        # distance control to the right
         point = ogr.Geometry(ogr.wkbPoint)
         point.AddPoint(line_select.GetX(1),line_select.GetY(1))
         dist_dx=pt_interes_sez.Distance(point)
         point.Destroy()
         if dist_dx > distBufferClip:
-            # invertire
+            # to flip
             line= flip_line(line_select)
         else:
             line=line_select
     else:
-        # controllo distanza a sinistra
+        # distance control to the left
         point = ogr.Geometry(ogr.wkbPoint)
         point.AddPoint(line_select.GetX(0),line_select.GetY(0))
         dist_sx=pt_interes_sez.Distance(point)
@@ -159,7 +113,7 @@ def CheckVerso(distBufferClip,inters_destra,pt_interes_sez,line_select):
 
 def graficoPoligono(poly1):
     """
-    grafico debug un poligono
+    graph debug of a polygon
     """
     nn=poly1.GetGeometryCount()
     name=poly1.GetGeometryName()
@@ -196,7 +150,7 @@ def graficoPoligono(poly1):
 
 def graficoPoligoni(poly1,poly2):
     """
-    grafico debug due poligoni
+    graph debug two polygons
     """
     nn=poly1.GetGeometryCount()
 
@@ -245,8 +199,8 @@ def seg_intersect(a1,a2, b1,b2) :
 
 def ProdottoVettSezioni(SezMonte,SezValle):
     """
-    Calcola il prodotto vettoriale fra
-    due vettori a e b nel piano x,y
+    Calculate the cross product between
+    two vectors a and b in the x, y plane
 
     a (xA,yA)
     b (xB,yB)
@@ -263,12 +217,12 @@ def ProdottoVettSezioni(SezMonte,SezValle):
 
 def SetCrossSecPointDiretion(p0,Length,psx,pdx):
     """
-    Crea la traccia di una sezione avente una direzione definita da due punti
-    e centrata su un punto
-    p0 [x,y]    : punto centrale
-    Length      : semilunghezza
-    psx [x,y]   : punto sinistro della direzione
-    pdx [x,y]   : punto destro della direzione
+    Creates the trace of a section having a direction defined by two points
+    and centered on a point
+    p0 [x,y]    : central point
+    Length      : half-length
+    psx [x,y]   : left point of the direction
+    pdx [x,y]   : right point of direction
     """
     # trovo l'angolo
     deltaX=pdx[0]-psx[0]
@@ -297,56 +251,46 @@ def SetCrossSecPointDiretion(p0,Length,psx,pdx):
 
     return GeomNew
 
-##def SezioneInterpolata(num,pt_curr,SezMonteGeom,SezValleGeom):
-##def SezioneInterpolata(num,pt_curr,SezMonteGeom,SezValleGeom):
 def SezioneInterpolata(pt_curr,SezMonteGeom,SezValleGeom):
     """
-    Trova per interpolazione una sezione intermedia fra
-    - SezMonteGeom: geom del segmento della sezione a monte
-    - SezValleGeom: geom del segmento della sezione a monte
-    - pt_curr     : punto intermendio fra la due sezioni e da cui passa
-                    la sezione interpolata
-                    il secondo punto della sezione interpolata e'
-                    quello in cui si incontrano le rette passanti
-                    per le due sezioni di monte e di valle
+    Find an intermediate section between
+    - SezMonteGeom: geom of the segment of the upstream section
+    - SezValleGeom: geom of the segment of the downstream section
+    - pt_curr     : intermediate point between the two sections and from which it
+                    passes the interpolated section
+                    the second point of the interpolated section is
+                    the one in which the straight lines
+                    of the two sections of upstream and downstream
+                    they intersect each other
     """
-##    Toll=0.1
-##    num_controllo=4
 
-    # Meta' lunghezza sezione di monte
+    # Half length upstream section
     Length=SezMonteGeom.Length()/2.0*1.5
 
-    # calcola la geometria interpolata
-    # --------------------------------
+    # calculates the interpolated geometry
+    # ------------------------------------
     p1 = np.array( [SezMonteGeom.GetX(0), SezMonteGeom.GetY(0)] )
     p2 = np.array( [SezMonteGeom.GetX(1), SezMonteGeom.GetY(1)] )
 
-##    if num==num_controllo:
-##        plt.plot([p1[0],p2[0]],[p1[1],p2[1]],'-k')
 
     p3 = np.array( [SezValleGeom.GetX(0), SezValleGeom.GetY(0)] )
     p4 = np.array( [SezValleGeom.GetX(1), SezValleGeom.GetY(1)] )
 
-##    if num==num_controllo:
-##        pass
-##        plt.plot([p3[0],p4[0]],[p3[1],p4[1]],'-g')
-
-
-    # intersezione delle due sezioni di monte e valle
+    # intersection of the two sections of upstream and downstream
     # -------------------------------------------------
-    # questo e' il punto a cui deve convergere la sezione interpolata
-    # e puo' trovarsi in destra o sinistra a seconda della curvatura
-    # dell'asse del fiume
+    #this is the point at which the interpolated section must converge
+    # and it can be in the right or left depending on the curvature
+    # of the axis of the river
     Intersect_0=seg_intersect( p1,p2, p3,p4)
 
-    # controllo se a destra o sinistra del fiume
+    # check whether to the right or left of the river
     orientamento=ProdottoVettSezioni(SezMonteGeom,SezValleGeom)
 
-    # controllo sulla linea di unione delle sezioni direttici alla parte interna della curva
+    # control on the joining line of the direct sections to the inner part of the curve
     LineInterna=ogr.Geometry(ogr.wkbLineString)
 
     if  orientamento>0:
-        # si presume una intersezione in sponda sinistra
+        # an intersection is assumed on the left bank
         inters_sx=bool('True')
         inters_destra=bool()
         LineInterna.AddPoint(SezMonteGeom.GetX(0), SezMonteGeom.GetY(0))
@@ -359,7 +303,7 @@ def SezioneInterpolata(pt_curr,SezMonteGeom,SezValleGeom):
         LineInterna.AddPoint(SezValleGeom.GetX(1), SezValleGeom.GetY(1))
 
 
-     # estende la lunghezza della sezione
+     # extends the length of the section
     # -----------------------------------
     if  inters_sx:
         GeomNew=SetCrossSecPointDiretion(pt_curr.GetPoint(0),Length,Intersect_0,pt_curr.GetPoint(0))
@@ -368,12 +312,12 @@ def SezioneInterpolata(pt_curr,SezMonteGeom,SezValleGeom):
 
 
 
-    # controllo che la sezione non raggiunga il punto di intersezione delle principali
+    # check if the section reaches the intersection point of the main ones
     # --------------------------------------------------------------------------------
     bufferClip=50.0
     distBufferClip=bufferClip*1.1
 
-    # crea un buffer intorno al punto
+    # creates a buffer around the point
     pt_interes_sez=ogr.Geometry(ogr.wkbPoint)
     pt_interes_sez.AddPoint(Intersect_0[0],Intersect_0[1])
     pt_poly = pt_interes_sez.Buffer(bufferClip)
@@ -383,18 +327,18 @@ def SezioneInterpolata(pt_curr,SezMonteGeom,SezValleGeom):
 
         pt_curr_poly= pt_curr.Buffer(bufferClip)
 
-        # la linea viene accorciata
+        # the line is shortened
         lines=GeomNew.Difference(pt_poly)
 
-        # conta il numero di geometrie
+        # counts the number of geometries
         nn=lines.GetGeometryCount()
         if nn>1:
             for i in range(nn):
                 g = lines.GetGeometryRef(i)
-                # sceglie la parte di linea che interseca l'asse del fiume
+                # choose the part of the line that intersects the axis of the river
                 if g.Crosses(pt_curr_poly):
                     line_select=ogr.CreateGeometryFromWkt(g.ExportToWkt())
-                    # controllare il verso
+                    # check the direction
                     line=CheckVerso(distBufferClip,inters_destra,pt_interes_sez,line_select)
                     break
         else:
@@ -403,7 +347,7 @@ def SezioneInterpolata(pt_curr,SezMonteGeom,SezValleGeom):
         wkt_new=line.ExportToWkt()
         GeomNew=ogr.CreateGeometryFromWkt(wkt_new)
 
-    # controlla l'intersezione con la linea uniona delle sezioni principali
+    # check the intersection with the union line of the main sections
     # ----------------------------------------------------------------------
     line_poly=LineInterna.Buffer(1.0)
 
@@ -411,22 +355,22 @@ def SezioneInterpolata(pt_curr,SezMonteGeom,SezValleGeom):
 
         pt_curr_poly= pt_curr.Buffer(bufferClip)
 
-        # trova il punto di intersezione
+        # find the intersection point
         pt_interes_sez=GeomNew.Intersection(LineInterna)
 
 
-        # la linea viene accorciata
+        # the line is shortened
         lines=GeomNew.Difference(line_poly)
 
-        # conta il numero di geometrie
+        # counts the number of geometries
         nn=lines.GetGeometryCount()
         if nn>1:
             for i in range(nn):
                 g = lines.GetGeometryRef(i)
-                # sceglie la parte di linea che interseca l'asse del fiume
+                # choose the part of the line that intersects the axis of the river
                 if g.Crosses(pt_curr_poly):
                     line_select=ogr.CreateGeometryFromWkt(g.ExportToWkt())
-                    # controllare il verso
+                    # check the direction
                     line=CheckVerso(distBufferClip,inters_destra,pt_interes_sez,line_select)
                     break
         else:
@@ -435,147 +379,25 @@ def SezioneInterpolata(pt_curr,SezMonteGeom,SezValleGeom):
         wkt_new=line.ExportToWkt()
         GeomNew=ogr.CreateGeometryFromWkt(wkt_new)
 
-
-##    if num==num_controllo:
-##        plt.plot([GeomNew.GetPoint(0)[0],GeomNew.GetPoint(1)[0]],[GeomNew.GetPoint(0)[1],GeomNew.GetPoint(1)[1]],'-r')
-##        plt.show()
-
-##    point_intersect = ogr.Geometry(ogr.wkbPoint)
-##    point_intersect.AddPoint(Intersect_0[0],Intersect_0[1])
-##
-##    dist_monte=SezMonteGeom.Distance(point_intersect)
-##    dist_valle=SezValleGeom.Distance(point_intersect)
-##
-##    chk=bool()
-##    if  dist_monte<Toll or dist_valle<Toll:
-##        chk=bool('True')
-##        if dist_monte<dist_valle:
-##            inters_monte=bool('True')
-##        else:
-##            inters_monte=bool()
-##        # controllo se a destra o sinistra del fiume
-##        dist_sx=math.sqrt((SezMonteGeom.GetX(0)-Intersect_0[0])**2+(SezMonteGeom.GetY(0)-Intersect_0[1])**2)
-##        dist_dx=math.sqrt((SezMonteGeom.GetX(1)-Intersect_0[0])**2+(SezMonteGeom.GetY(1)-Intersect_0[1])**2)
-##        if  dist_sx< dist_dx:
-##            inters_sx=bool('True')
-##        else:
-##            inters_sx=bool()
-##
-##
-##    if num==num_controllo:
-##        plt.scatter(pt_curr.GetX(0), pt_curr.GetY(0),marker='o', c="b")
-##        plt.scatter(Intersect_0[0], Intersect_0[1],marker='o', c="r")
-##
-##
-##    p1 = np.array( [pt_curr.GetX(0), pt_curr.GetY(0)] )
-##    p2 = np.array( [Intersect_0[0], Intersect_0[1]] )
-##
-##    if  chk and inters_sx:
-##        if inters_monte:
-##            x_medio=(SezMonteGeom.GetX(0)+SezMonteGeom.GetX(1))/2.0
-##            y_medio=(SezMonteGeom.GetY(0)+SezMonteGeom.GetY(1))/2.0
-##            xx=(x_medio+Intersect_0[0])/2.0
-##            yy=(y_medio+Intersect_0[1])/2.0
-##            p3 = np.array( [xx, yy])
-##            p4 = np.array( [SezValleGeom.GetX(0), SezValleGeom.GetY(0)] )
-##        else:
-##            x_medio=(SezValleGeom.GetX(0)+SezValleGeom.GetX(1))/2.0
-##            y_medio=(SezValleGeom.GetY(0)+SezValleGeom.GetY(1))/2.0
-##            xx=(x_medio+Intersect_0[0])/2.0
-##            yy=(y_medio+Intersect_0[1])/2.0
-##            p3 = np.array( [SezMonteGeom.GetX(0), SezMonteGeom.GetY(0)])
-##            p4 = np.array( [xx, yy])
-##    else:
-##        p3 = np.array( [SezMonteGeom.GetX(0), SezMonteGeom.GetY(0)])
-##        p4 = np.array( [SezValleGeom.GetX(0), SezValleGeom.GetY(0)] )
-##
-##    # primo punto della sezione interpolata  : quello in sinistra
-##    Intersect_1=seg_intersect( p1,p2, p3,p4)
-##
-##    if num==num_controllo:
-##        plt.scatter(Intersect_1[0], Intersect_1[1],marker='o', c="g")
-##
-##    # controllo per il punto a destra
-##    if  chk and not inters_sx:
-##        if inters_monte:
-##            x_medio=(SezMonteGeom.GetX(0)+SezMonteGeom.GetX(1))/2.0
-##            y_medio=(SezMonteGeom.GetY(0)+SezMonteGeom.GetY(1))/2.0
-##            xx=(x_medio+Intersect_0[0])/2.0
-##            yy=(y_medio+Intersect_0[1])/2.0
-##            p3 = np.array( [xx, yy])
-##            p4 = np.array( [SezValleGeom.GetX(1), SezValleGeom.GetY(1)])
-##        else:
-##            x_medio=(SezValleGeom.GetX(0)+SezValleGeom.GetX(1))/2.0
-##            y_medio=(SezValleGeom.GetY(0)+SezValleGeom.GetY(1))/2.0
-##            xx=(x_medio+Intersect_0[0])/2.0
-##            yy=(y_medio+Intersect_0[1])/2.0
-##            p3 = np.array( [SezMonteGeom.GetX(1), SezMonteGeom.GetY(1)])
-##            p4 = np.array( [xx, yy])
-##    else:
-##        p3 = np.array( [SezMonteGeom.GetX(1), SezMonteGeom.GetY(1)] )
-##        p4 = np.array( [SezValleGeom.GetX(1), SezValleGeom.GetY(1)] )
-##
-##    # secondo punto della sezione interpolata : quello in destra
-##    Intersect_2=seg_intersect( p1,p2, p3,p4)
-##
-##    if num==num_controllo:
-##        plt.scatter(Intersect_2[0], Intersect_2[1], marker='^', c="g")
-##
-##    # estende la lunghezza della sezione
-##    # -----------------------------------
-##    # trovo l'angolo
-##    deltaX=Intersect_2[0]-Intersect_1[0]
-##    deltaY=Intersect_2[1]-Intersect_1[1]
-##
-##    if deltaX!=0:
-##        arc=np.arctan(deltaY/deltaX)
-##        dx=np.sign(deltaX)*abs(Length*np.cos(arc))
-##        dy=np.sign(deltaY)*abs(Length*np.sin(arc))
-##
-##        x1=p1[0]-dx
-##        y1=p1[1]-dy
-##        x2=p1[0]+dx
-##        y2=p1[1]+dy
-##    else:
-##        dy=np.sign(deltaY)*Length
-##        x1=p1[0]
-##        y1=p1[1]-dy
-##        x2=p1[0]
-##        y2=p1[1]+dy
-##
-##
-##    if num==num_controllo:
-##
-##        plt.plot([Intersect_1[0],Intersect_2[0]],[Intersect_1[1],Intersect_2[1]],'-r')
-##        plt.show()
-##
-##    GeomNew=ogr.Geometry(ogr.wkbLineString)
-##
-##    GeomNew.AddPoint(x1,y1)
-##    GeomNew.AddPoint(x2,y2)
-
     return GeomNew
 
-def ChkDimSez(line,pt):
-    # controlla le distanze dei punti della sezione dal punto centrale
-    pass
 
 def PuntoMedio(pt1,pt2):
 
-    # calcola il punto medio fra due
+    # calculates the midpoint between two
     pt_mean=[(pt1[0]+pt2[0])/2.0,(pt1[1]+pt2[1])/2.0]
 
     return pt_mean
 
 def PuntoIntermedio(pt1,pt2,percent):
 
-    # calcola il punto intermedio ad una cerca percentuale fra due
+    # calculates the intermediate point at a certain percentage between two
     pt_intermedio=[pt1[0]+percent*(pt2[0]-pt1[0]),pt1[1]+percent*(pt2[1]-pt1[1])]
 
     return pt_intermedio
 
 def flip_line(line):
-    # inverte i punti della linea
+    # reverses the points of the line
     GeomNew=ogr.Geometry(ogr.wkbLineString)
     for i in range(line.GetPointCount()-1,-1,-1):
         # GetPoint returns a tuple not a Geometry
@@ -587,19 +409,19 @@ def flip_line(line):
 
 def SetStreamLinePoints(MultiStreamLine,End_cross_sec_line):
     """
-    Crea la lista dei punti del fiume dalla prima all'ultima sezione
+    Create the list of river points from the first to the last section
     Input:
-        -  StreamLine           : linea del fiume
-        -  End_cross_sec_line   : linea della sezione finale
+        -  StreamLine           : line of the river path
+        -  End_cross_sec_line   : final cross-section line
     """
-    # crea la lista dei punti della streamLine
+    # create the list of points in the streamLine
     ListaPuntiStreamLine=[]
     if MultiStreamLine.GetGeometryName() == 'LINESTRING':
         StreamLine=MultiStreamLine
     else:
 
-        # controlla il numero di geometrie
-        # prende il poligono piu' grande nei Multipoligons
+        # check the number of geometries
+        # takes the largest polygon in the Multipoligons
         numlines=MultiStreamLine.GetGeometryCount()
 
         if numlines>1:
@@ -615,11 +437,11 @@ def SetStreamLinePoints(MultiStreamLine,End_cross_sec_line):
             Length=StreamLine.Length()
 
         else:
-            # prende la prima
+            # takes the first one
             StreamLine=MultiStreamLine.GetGeometryRef(0)
             Length=StreamLine.Length()
 
-    # inserisco il primo punto
+    # entering the first point
     ListaPuntiStreamLine.append(StreamLine.GetPoint(0))
 
     for ii in range(0, StreamLine.GetPointCount()-1):
@@ -638,20 +460,20 @@ def SetStreamLinePoints(MultiStreamLine,End_cross_sec_line):
 
     return ListaPuntiStreamLine
 
-def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezInterp=2000.0,DeltaSezPrincipale=5):
+def SetIntermediatePoints(mydb_path_user,PathFiles,fileDEM,DamID,DistanzaSezInterp=2000.0,DeltaSezPrincipale=5):
     """
-    Crea la sequenza dei punti intermedi fra le sezioni principali
+    Create the sequence of intermediate points between the main cross sections
     """
     NotErr=bool('True')
     errMsg='OK'
 
     if not os.path.exists(PathFiles):
-        errMsg = "Non ci sono dati per la diga num =%s \nEffettuare prima l'editing delle sezioni principali !" % (ID_Diga)
+        errMsg = "There is no data for the dam num =%s \nPerform the editing of the main cross sections first !" % (DamID)
         NotErr= bool()
         return NotErr, errMsg
 
     if not os.path.exists(fileDEM):
-        errMsg = "Non ci sono dati per la diga num =%s \nEffettuare prima il clip del DEM a valle !" % (ID_Diga)
+        errMsg = "There is no data for the dam num =%s \nMake the downstream DEM clip first !" % (DamID)
         NotErr= bool()
         return NotErr, errMsg
 
@@ -664,10 +486,10 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
     # creating a Cursor
     cur = conn.cursor()
 
-    # controlla esistenza linea tratto a valle
-    NomeTabellaLinee='LineaValleDiga'
+    # check downstream line existence
+    NomeTabellaLinee='Downstreampath'
 
-    # codice del sistema di riferimento della tabella
+    # reference system code of the table
     sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NomeTabellaLinee.lower())
     cur.execute(sql)
 
@@ -681,12 +503,12 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
     dest_srs.ImportFromEPSG(DominioEPSG)
 
 
-    sql='SELECT ST_AsText(geom) FROM %s WHERE ID_Diga=%d' % (NomeTabellaLinee,ID_Diga)
+    sql='SELECT ST_AsText(geom) FROM %s WHERE DamID=%d' % (NomeTabellaLinee,DamID)
     cur.execute(sql)
     ChkDiga=cur.fetchone()
 
     if ChkDiga==None:
-        errMsg = "Nella tabella= %s non ci sono dati per la diga num =%s \nEffettuare prima il calcolo della linea a valle !" % (NomeTabellaLinee,ID_Diga)
+        errMsg = "In the table= %s there is no data for the dam num =%s \nPerform the downstream line calculation first !" % (NomeTabellaLinee,DamID)
         NotErr= bool()
         return NotErr, errMsg
 
@@ -696,10 +518,10 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
         TotalLength=linea_geom.Length()
 
 
-    # tabella delle sezioni principali
+    # table of main cross-sections
     NomeTabella='MainCrossSec'
 
-    sql='SELECT PKUID,ST_AsText(geom) FROM %s WHERE ID_Diga=%d' % (NomeTabella,ID_Diga)
+    sql='SELECT PKUID,ST_AsText(geom) FROM %s WHERE DamID=%d' % (NomeTabella,DamID)
     sql+=' ORDER BY id'
     sql+=';'
     cur.execute(sql)
@@ -709,13 +531,13 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
 
     if n <= 0:
 
-        errMsg = "Non ci sono dati per la diga num =%s \nEffettuare prima il calcolo delle sezioni principali !" % (ID_Diga)
+        errMsg = "There is no data for the dam num =%s \nFirst calculate the main cross-sections !" % (DamID)
         NotErr= bool()
         return NotErr, errMsg
 
     else:
 
-        # codice del sistema di riferimento della tabella
+        # reference system code of the table
         sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NomeTabella.lower())
         cur.execute(sql)
         record=cur.fetchone()
@@ -726,7 +548,7 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
 
 
     # --------------
-    # leggo il DTM
+    # Reading the DTM
     # --------------
 
     gdal.AllRegister()
@@ -755,10 +577,10 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
     inband = None
     indataset=None
 
-    # definisco una distanza minima fra sezioni secondarie
+    # defining a minimum distance between secondary cross-sections
     DistanzaSezInterp_min=3*pixelWidth
 
-    # Crea la lista dei punti della linea del fiume
+    # Create the list of the points of the river line
     # ---------------------------------------------
     ListaPuntiFiume=[]
     for i in range(0, linea_geom.GetPointCount()):
@@ -766,16 +588,16 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
 
     num_pt_fiume=len(ListaPuntiFiume)
 
-    # dizionario PKUID_sec_id: memorizza i valori id da assegnare alle sezioni principali
+    # dictionary PKUID_sec_id: stores the id values to be assigned to the main cross-sections
     PKUID_sec_id={}
     listaIdSecPrincipali=[]
 
-    # dizionario id_Points : dizionario dei punti
+    # dictionary id_Points : dictionary of points
     id_Points={}
-    # dizionario delle distanze progressive
+    # dictionary of progressive distances
     progr_Points={}
 
-    # Scorre le varie sezioni
+
     # -----------------------
     point_stream_start=0
     num_point_curr=0
@@ -784,18 +606,18 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
     id_Points[num_point_curr]=pt_start
     progr_Points[num_point_curr]=progr_monte
 
-    # cerco la prima sezione principale
+    # looking for the first main cross-section
     cross_sec_wkt=ListaCrossSec[0][1]
 
-    # assegno id=0 al punto della prima sezione
+    # set id = 0 at the point of the first section
     PKUID_sec_id[ListaCrossSec[0][0]]=num_point_curr
     listaIdSecPrincipali.append(num_point_curr)
 
     cross_sec_line=ogr.CreateGeometryFromWkt(cross_sec_wkt)
 
-    # memorizza la linea della sezione interpolata corrispondente
+    # stores the line of the corresponding interpolated section
     UpstreaSez_wkt=cross_sec_line.ExportToWkt()
-    # memorizza i punti della sezione
+    # stores the points of the section
     Point_a=cross_sec_line.GetPoint(0)
     Point_b=cross_sec_line.GetPoint(1)
 
@@ -838,7 +660,7 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
 
                 NumSezSecondarieTratto=DeltaSezPrincipaleCur+1
 
-                # sequenza della distanze progressive secondarie
+                # sequence of secondary progressive distances
                 xvals=numpy.linspace(0, tratto_length, NumSezSecondarieTratto)
 
                 # generazione dei punti intermedi
@@ -855,15 +677,15 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
                 y0=numpy.array(listay)
                 dist = numpy.sqrt((x0[:-1] - x0[1:])**2 + (y0[:-1] - y0[1:])**2)
                 dist_along = numpy.concatenate(([0], dist.cumsum()))
-                # creo il vettore delle progressive
+                # creating the progressive array
                 progr_along=xvals + progr_monte
 
-                # trovo i punti alle distanze predefinite mediante interpolazione
+                # finding points at predefined distances by linear interpolation
                 ArrayXSec=numpy.interp(xvals, dist_along, x0)
                 ArrayYSec=numpy.interp(xvals, dist_along, y0)
 
 
-                # creazione dei punti intermedi
+                # creation of intermediate points
                 # -----------------------------
                 npt=len(ArrayXSec)
 
@@ -878,100 +700,100 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
                     pt_curr=ogr.Geometry(ogr.wkbPoint)
                     pt_curr.AddPoint(ArrayXSec[i],ArrayYSec[i])
 
-                    # controllo la posizione punto i-esimo rispetto al segmento di monte
+                    # check the position of the i-th point with respect to the upstream segment
                     c=pt_curr.GetPoint(0)
                     PosizPtCur=isLeft(Point_a,Point_b,c)
 
-                    # controllo la posizione punto a valle rispetto al segmento di valle
+                    # check the downstream point position with respect to the downstream segment
                     PosizPtValle=isLeft(Point_a,Point_b,pt_valle)
 
 
-                    # salva i dati del segmento di monte per il controllo del punto successiva
+                    # save the upstream segment data for checking the next point
                     NewGeom = SezioneInterpolata(pt_curr,cross_sec_line,next_cross_sec_line)
                     Point_a=NewGeom.GetPoint(0)
                     Point_b=NewGeom.GetPoint(1)
 
-                    # controlla la posizione reciprova attuale dei due punti
+                    # check the current mutual position of the two points
                     Congruenza=PosizPtCur*PosizPtValle
 
                     if Congruenza>0:
 
-                        # controllo anche che vi sia una distanza minima dalla sezione di monte
-                        # e dalla sezione direttrice di valle
+                        # also check that there is a minimum distance from the upstream section
+                        # and from the directional downstream cross-section
                         UpstreaSez=ogr.CreateGeometryFromWkt(UpstreaSez_wkt)
                         Dist1=pt_curr.Distance(UpstreaSez)
                         Dist2=pt_curr.Distance(next_cross_sec_line)
 
                         if Dist1>Tooll_Distanza and Dist2>Tooll_Distanza:
 
-                            # salvo le coordinate del punto
+                            # saving the point coordinates
                             id_Points[num_point_curr]=pt_curr.GetPoint(0)
                             progr_Points[num_point_curr]=progr_along[i]
 
-                            # salva la geometria della sezione a monte del punto i+1 -esimo
+                            # saves the geometry of the section upstream of the point i + 1-th
                             UpstreaSez_wkt=NewGeom.ExportToWkt()
 
                         else:
-                            txt='--  Scartato punto n: %d delle sezioni intermedie a valle sez. direttrice : %d-esima causa distanza inferiore alla minima' % (i,isec-1)
+                            txt='--  Discarded point n: %d of the intermediate sections downstream cross-section directional : %d-th due to distance less than the minimum' % (i,isec-1)
                             errMsg+='\n%s'% txt
 
                             pt_curr.Destroy()
 
                     else:
-                        txt='--  Scartato punto n: %d  delle sezioni intermedie a valle sez. direttice :%d-esima causa meandro che verso monte' % (i,isec-1)
+                        txt='--  Discarded point n: %d  of the intermediate sections downstream cross-section directional :%d-th due to a meander that goes upstream' % (i,isec-1)
                         errMsg+='\n%s'% txt
                         pt_curr.Destroy()
 
-                # -----------------------------------------------------
-                # Creazione del punto della sezione principale di valle
-                # -----------------------------------------------------
+                # -----------------------------------------------------------
+                # Creation of the point of the main downstream cross-section
+                # ----------------------------------------------------------
 
-                # incremento il numero di id del punto
+                # increase the number of points id
                 num_point_curr+=1
 
-                # creazione del punto di valle
+                # creation of the downstream point
                 PKUID_sec_id[ListaCrossSec[isec][0]]=num_point_curr
                 listaIdSecPrincipali.append(num_point_curr)
 
-                # salvo le coordinate del punto
+                # saving the point coordinates
                 id_Points[num_point_curr]=pt_valle
                 progr_Points[num_point_curr]=progr_along[-1]
 
-                # aggiorno la progressiva di monte
+                # updating the upstream progressive
                 progr_monte+=tratto_length
 
-                # salva la geometria della sezione a monte del punto i+1 -esimo
+                # saves the geometry of the section upstream of the point i + 1-th
                 UpstreaSez_wkt=ListaCrossSec[isec][1]
 
                 cross_sec_line=ogr.CreateGeometryFromWkt(UpstreaSez_wkt)
 
-                # memorizza i punti della sezione
+                # save the points of the section
                 Point_a=cross_sec_line.GetPoint(0)
                 Point_b=cross_sec_line.GetPoint(1)
 
-                # inizializza il nuovo tratto
+                # initialize the new reach
                 line_tratto.Destroy()
                 line_tratto=ogr.Geometry(ogr.wkbLineString)
                 line_tratto.AddPoint(pt_valle[0],pt_valle[1])
 
-                # aggiorna e esce dal ciclo
+                # update and exit the cycle
                 point_stream_start=i_fiume
 
                 break
 
-                # azzero la memoria
+                # clear the memory
                 line_tratto.Destroy()
 
             else:
                 line_tratto.AddPoint(ListaPuntiFiume[i_fiume+1][0],ListaPuntiFiume[i_fiume+1][1])
 
-    # controlla il caso dell'ultima sezione
+    # check the case of the last section
     # -------------------------------------
     NumTratti= NumSecPrincipali-1
 
     if NumTratti not in ListaSecOk:
 
-        # caso in cui l'ultimo tratto (line_tratto) non e' stato valutato
+        # case in which the last section (line_tratto) has not been evaluated
         tratto_length=line_tratto.Length()
 
         DistanzaSezInterpCurr=tratto_length/float(DeltaSezPrincipale)
@@ -986,10 +808,8 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
 
         NumSezSecondarieTratto=DeltaSezPrincipaleCur+1
 
-        # sequenza della distanze progressive secondarie
         xvals=numpy.linspace(0, tratto_length, NumSezSecondarieTratto)
 
-        # generazione dei punti intermedi
         listax=[]
         listay=[]
         for kk in range(0, line_tratto.GetPointCount()):
@@ -1006,13 +826,10 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
         # creo il vettore delle progressive
         progr_along=xvals + progr_monte
 
-        # trovo i punti alle distanze predefinite mediante interpolazione
         ArrayXSec=numpy.interp(xvals, dist_along, x0)
         ArrayYSec=numpy.interp(xvals, dist_along, y0)
 
 
-        # creazione dei punti intermedi
-        # -----------------------------
         npt=len(ArrayXSec)
 
         pt_valle=[ArrayXSec[-1],ArrayYSec[-1]]
@@ -1026,72 +843,61 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
             pt_curr=ogr.Geometry(ogr.wkbPoint)
             pt_curr.AddPoint(ArrayXSec[i],ArrayYSec[i])
 
-            # controllo la posizione punto i-esimo rispetto al segmento di monte
             c=pt_curr.GetPoint(0)
             PosizPtCur=isLeft(Point_a,Point_b,c)
 
-            # controllo la posizione punto a valle rispetto al segmento di valle
             PosizPtValle=isLeft(Point_a,Point_b,pt_valle)
 
-
-            # salva i dati del segmento di monte per il controllo del punto successiva
             NewGeom = SezioneInterpolata(pt_curr,cross_sec_line,next_cross_sec_line)
             Point_a=NewGeom.GetPoint(0)
             Point_b=NewGeom.GetPoint(1)
 
-            # controlla la posizione reciprova attuale dei due punti
             Congruenza=PosizPtCur*PosizPtValle
 
             if Congruenza>0:
 
-                # controllo anche che vi sia una distanza minima dalla sezione di monte
-                # e dalla sezione direttrice di valle
                 UpstreaSez=ogr.CreateGeometryFromWkt(UpstreaSez_wkt)
                 Dist1=pt_curr.Distance(UpstreaSez)
                 Dist2=pt_curr.Distance(next_cross_sec_line)
 
                 if Dist1>Tooll_Distanza and Dist2>Tooll_Distanza:
 
-                    # salvo le coordinate del punto
                     id_Points[num_point_curr]=pt_curr.GetPoint(0)
                     progr_Points[num_point_curr]=progr_along[i]
 
-                    # salva la geometria della sezione a monte del punto i+1 -esimo
                     UpstreaSez_wkt=NewGeom.ExportToWkt()
 
                 else:
-                    txt='--  Scartato punto n: %d delle sezioni intermedie a valle sez. direttrice : %d-esima causa distanza inferiore alla minima' % (i,isec-1)
+                    txt='--  Discarded point n: %d of the intermediate sections downstream cross-section directional : %d-th due to distance less than the minimum' % (i,isec-1)
                     errMsg+='\n%s'% txt
 
                     pt_curr.Destroy()
 
             else:
-                txt='--  Scartato punto n: %d  delle sezioni intermedie a valle sez. direttice :%d-esima causa meandro che verso monte' % (i,isec-1)
+                txt='--  Discarded point n: %d  of the intermediate sections downstream cross-section directional :%d-th due to a meander that goes upstream' % (i,isec-1)
                 errMsg+='\n%s'% txt
                 pt_curr.Destroy()
 
-        # -----------------------------------------------------
-        # Creazione del punto della sezione principale di valle
-        # -----------------------------------------------------
+        # -----------------------------------------------------------
+        # Creation of the point of the main downstream cross-section
+        # ----------------------------------------------------------
 
-        # incremento il numero di id del punto
         num_point_curr+=1
 
-        # creazione del punto di valle
         PKUID_sec_id[ListaCrossSec[isec][0]]=num_point_curr
         listaIdSecPrincipali.append(num_point_curr)
 
-        # salvo le coordinate del punto
         id_Points[num_point_curr]=pt_valle
         progr_Points[num_point_curr]=progr_along[-1]
 
         # azzero la memoria
         line_tratto.Destroy()
 
-    # trova le quote di fondo dei punti
-    # ---------------------------------
+    # --------------------------------------
+    # find the elevation values of the points
+    # --------------------------------------
 
-    # trovo le distanze progressive delle sezioni secondarie
+    # finding the progressive distances of the secondary sections
     # -------------------------------------------------------
     XSec=[]
     YSec=[]
@@ -1104,8 +910,6 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
     ArrayXSec=numpy.array(XSec)
     ArrayYSec=numpy.array(YSec)
 
-    # distanze progressive delle sezioni secondarie
-    # -------------------------------------------------------
     dist = numpy.sqrt((ArrayXSec[:-1] - ArrayXSec[1:])**2 + (ArrayYSec[:-1] - ArrayYSec[1:])**2)
     dist_along_2 = numpy.concatenate(([0], dist.cumsum()))
     nn_along_2=len(dist_along_2)
@@ -1118,16 +922,16 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
     listax=[]
     listay=[]
 
-    # effettuo la ricerca della quota minima
+    # searching for the minimum elevation
     # ...........................................................
-    # controllando anche un certo numero di celle intorno al punto
+    # also checking a certain number of cells around the point
     deltapixel=1
     steps=deltapixel*2+1
     finale=len(ArrayXSec)-1
 
-    # dizionario sez_monte
+    # dictionary upstream cross-section
     dic_SezMonte={}
-    # dizionario sez_valle
+    # dictionary downstream cross-section
     dic_SezValle={}
     i_monte=0
     for i in range(len(ArrayXSec)):
@@ -1146,7 +950,7 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
 
         zpunto=Elevation[yOffset, xOffset]
 
-        # aggiorna dizionari
+        # update dictionaries
         if i in  listaIdSecPrincipali:
             dic_SezMonte[i]=-1
             dic_SezValle[i]=-1
@@ -1155,7 +959,7 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
             dic_SezMonte[i]=ArrayIdSecPrinc[id_valle-1]
             dic_SezValle[i]=ArrayIdSecPrinc[id_valle]
 
-        # cercare anche le quote di un certo numero di punti intorno !
+        # also look for elevations of a certain number of points around!
         ListaZeta=[]
         for ii in range(steps):
             for jj in range(steps):
@@ -1170,9 +974,9 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
         nn=len(ListaZeta)
         if nn>0:
             ZetaArray=numpy.array(ListaZeta)
-            # prendo il valor minimo
+            # taking the minimum value
             z=ZetaArray.min()
-            # calcolo il valor medio con il punto della sezione
+            # calculate the average value with the point of the section
             z=(zpunto+z)/2.0
         else:
             z=0.0
@@ -1180,7 +984,7 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
             errMsg+='\n%s'% txt
         QuoteAlveo.append(z)
 
-    # costruisco un alveo pendente
+    # building a sloping riverbed
     npt=len(ArrayXSec)
 
     PendMin=float(0.0001)
@@ -1196,13 +1000,12 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
             QuoteAlveo[i-1]=QuoteAlveo[i]+PendMin*dx
 
 
-    # ============================
-    # salva i dati nel geodatabase
-    # ============================
+    # =================================
+    # save the data in the geodatabase
+    # =================================
 
     TargetTabella='PathPoints'
 
-    # codice del sistema di riferimento della tabella
     sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (TargetTabella.lower())
     cur.execute(sql)
     record=cur.fetchone()
@@ -1211,13 +1014,12 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
     else:
         OriginEPSG=32632
 
-    # controllo la esistenza di dati pregressi
-    sql='SELECT PKUID,id FROM %s WHERE ID_Diga=%d' % (TargetTabella,ID_Diga)
+    sql='SELECT PKUID,id FROM %s WHERE DamID=%d' % (TargetTabella,DamID)
     cur.execute(sql)
     ListaTratti=cur.fetchall()
     if len(ListaTratti)>0:
         # cancello i dati pregressi
-        sql='DELETE FROM %s WHERE ID_Diga=%d' % (TargetTabella,ID_Diga)
+        sql='DELETE FROM %s WHERE DamID=%d' % (TargetTabella,DamID)
         cur.execute(sql)
         conn.commit()
 
@@ -1237,8 +1039,8 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
             tipo_i=0
         zcur=float("{0:.2f}".format(QuoteAlveo[i]))
 
-        # salvo nel geodatabase
-        sql='INSERT INTO %s (ID_Diga,id,type,elev,progr,geom) VALUES (%d'  %  (TargetTabella,ID_Diga)
+        # save
+        sql='INSERT INTO %s (DamID,id,type,elev,progr,geom) VALUES (%d'  %  (TargetTabella,DamID)
         sql+=',%d' %  id_cur
         sql+=',%d' %  tipo_i
         sql+=',%.2f' % zcur
@@ -1251,18 +1053,16 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
 
         pt.Destroy()
 
-    # salvo
     conn.commit()
 
-    # aggiorno gli id delle sezioni principali
+    # update the id of the main cross-sections
     # ----------------------------------------
 
-    # tabella delle sezioni principali
     NomeTabella='MainCrossSec'
 
     for PKUID in PKUID_sec_id:
         ii=PKUID_sec_id[PKUID]
-        sql='UPDATE %s SET id=%d WHERE ID_Diga=%d AND PKUID=%d'  %  (NomeTabella,ii,ID_Diga,PKUID)
+        sql='UPDATE %s SET id=%d WHERE DamID=%d AND PKUID=%d'  %  (NomeTabella,ii,DamID,PKUID)
         cur.execute(sql)
 
     conn.commit()
@@ -1273,37 +1073,37 @@ def SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM,DistanzaSezIn
 
     return NotErr, errMsg
 
-def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
+def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,DamID):
 
     """
-    Crea le sezioni interpolate utilizzando le sezioni principali come direttrici
+    Create the interpolated sections using the main cross-sections as guidelines
 
-    Crea inoltre anche il grid StreamDH.tif delle altezze rispetto al fiume
+    It also creates the StreamDH.tif grid of heights from the river bed
     """
 
     NotErr=bool('True')
     errMsg='OK'
 
 
-    # controllo esistenza dati di input
+    # check for existence of input data
     # ---------------------------------
     PathFiles=os.path.realpath(PathFiles)
 
     if not os.path.exists(PathFiles):
-        errMsg = "Non ci sono dati per la diga num =%s \nEffettuare prima il calcolo delle sezioni a valle !" % (ID_Diga)
+        errMsg = "There is no data for the dam num =%s \nPerform the calculation of the downstream sections first !" % (DamID)
         NotErr= bool()
         return NotErr, errMsg
 
     CrossSec=PathFiles+os.sep+'CrossSec.shp'
 
     if not os.path.exists(ClipDEM):
-        errMsg = "Manca per la diga num =%s il clip DEM\nEffettuare prima il ritaglio del modello digitale del terreno !" % (ID_Diga)
+        errMsg = "Missing for the dam num =%s the clip DEM\nFirst make the clip of the digital terrain model !" % (DamID)
         NotErr= bool()
         return NotErr, errMsg
 
 
     # =====================================
-    # apertura del database sqlite utente
+    # connection to the geodatabase
     # ====================================
 
     conn = sqlite3.connect(mydb_path_user, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
@@ -1314,10 +1114,9 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
     # creating a Cursor
     cur = conn.cursor()
 
-    # controlla esistenza linea tratto a valle
-    NomeTabellaLinee='LineaValleDiga'
+    # check if the downstrema line exists
+    NomeTabellaLinee='Downstreampath'
 
-    # codice del sistema di riferimento della tabella
     sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NomeTabellaLinee.lower())
     cur.execute(sql)
 
@@ -1330,32 +1129,32 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
     dest_srs = ogr.osr.SpatialReference()
     dest_srs.ImportFromEPSG(DominioEPSG)
 
-    sql='SELECT TotalLength,ST_AsText(geom) FROM %s WHERE ID_Diga=%d' % (NomeTabellaLinee,ID_Diga)
+    sql='SELECT TotalLength,ST_AsText(geom) FROM %s WHERE DamID=%d' % (NomeTabellaLinee,DamID)
     cur.execute(sql)
     ChkDiga=cur.fetchone()
 
     if ChkDiga==None:
-        errMsg = "Nella tabella= %s non ci sono dati per la diga num =%s \nEffettuare prima il calcolo della linea a valle !" % (NomeTabellaLinee,ID_Diga)
+        errMsg = "In the table= %s there is no data for the dam num =%s \nPerform the downstream line calculation first !" % (NomeTabellaLinee,DamID)
         NotErr= bool()
         return NotErr, errMsg
 
     else:
         wkt_line=ChkDiga[1]
         TotalLength_1=ChkDiga[0]
-        # crea la geometria della linea dell'asse del fiume
+        # creates the geometry of the river axis line
         StreamLine=ogr.CreateGeometryFromWkt(wkt_line)
         TotalLength=StreamLine.Length()
 
-    # creo poly_stream di 50 m
+    # create a poly_stream of 50 m
     poly_stream=StreamLine.Buffer(50)
 
-    TabellaPoligono='PoligonoValleDiga'
-    sql='SELECT Area,ST_AsText(geom) FROM %s WHERE ID_Diga=%d' % (TabellaPoligono,ID_Diga)
+    TabellaPoligono='StudyArea'
+    sql='SELECT Area,ST_AsText(geom) FROM %s WHERE DamID=%d' % (TabellaPoligono,DamID)
     cur.execute(sql)
     ChkDigaPoly=cur.fetchone()
 
     if ChkDigaPoly==None:
-        errMsg = "Nella tabella= %s non ci sono dati per la diga num =%s \nEffettuare prima il calcolo della zona di studio a valle !" % (TabellaPoligono,ID_Diga)
+        errMsg = "In the table= %s there is no data for the dam num =%s \nFirst calculate the study area downstream !" % (TabellaPoligono,DamID)
         NotErr= bool()
         return NotErr, errMsg
 
@@ -1366,35 +1165,34 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
     CrossSecTot='%sTot.shp' % (CrossSec[:-4])
     CrossSecPoly='%sPoly.shp' % (CrossSec[:-4])
 
-    # linea mediana
+    # midline
     LineaMediana='%sMedianPath.shp' % (CrossSec[:-4])
 
-    # poligoni divisi in destra e sinistra
+    # polygons divided into right and left
     CrossSecPoly2='%sPoly_2.shp' % (CrossSec[:-4])
 
-    # traccia sezioni intermedie rappresentative del tratto
+    # trace of the intermediate cross-sections representative of the reach
     CrossMedie='%sMean.shp' % (CrossSec[:-4])
 
 
-    # traccia sezioni interpolate e sezioni intermedie rappresentative del tratto
-    # sevono per creare StreamDH.tif meglio definito !!
+    # trace of the interpolated sections and intermediate sections representative of the reach
+    # need to create StreamDH.tif better defined !!
     Cross_Tot_Medie='%sTot_and_Mean.shp' % (CrossSec[:-4])
 
-    # Punto sul fiume della sezione rappresentativa del tratto
+    # Point on the river of the representative section of the reach
     CrossMediePunto='%sMeanPunto.shp' % (CrossSec[:-4])
 
-    # poligoni destra e sinistra fiume
+    # polygons right and left river
     PolySxDx=PathFiles + os.sep +'PolySxDx.shp'
 
-    # carico il driver dello shapefile
     driver = ogr.GetDriverByName('ESRI Shapefile')
 
-    # creo il Multipolygon del dominio
+    # creating the domain Multipolygon
     DominoPoly=ogr.CreateGeometryFromWkt(wkt_Dominio)
 
     Area=DominoPoly.Area()
 
-    # prende il poligono piu' grande nei Multipoligons
+    # takes the largest polygon in the Multipoligons
     numpoly=DominoPoly.GetGeometryCount()
 
     if numpoly>1:
@@ -1410,17 +1208,16 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         Area1=DominoRing.Area()
 
     else:
-        # prende il primo
+        # takes the first one
         DominoRing=DominoPoly.GetGeometryRef(0)
         Area1=DominoRing.Area()
 
-    # leggo la geometria delle sezioni principali
+    # reading the geometry of the main cross-sections
     # ---------------------------------------------
-    # tabella delle sezioni principali
     NomeTabella='MainCrossSec'
 
 
-    sql='SELECT id,ST_AsText(geom) FROM %s WHERE ID_Diga=%d' % (NomeTabella,ID_Diga)
+    sql='SELECT id,ST_AsText(geom) FROM %s WHERE DamID=%d' % (NomeTabella,DamID)
     cur.execute(sql)
     ListaCrossSec=cur.fetchall()
 
@@ -1428,13 +1225,12 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
     if n <= 0:
 
-        errMsg = "Non ci sono dati per la diga num =%s \nEffettuare prima il calcolo delle sezioni principali !" % (ID_Diga)
+        errMsg = "There is no data for the dam num =%s \nFirst calculate the main cross-sections !" % (DamID)
         NotErr= bool()
         return NotErr, errMsg
 
     else:
 
-        # codice del sistema di riferimento della tabella
         sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NomeTabella.lower())
         cur.execute(sql)
         record=cur.fetchone()
@@ -1443,29 +1239,29 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         else:
             OriginEPSG=32632
 
-        # carico le geometrie in un dizionario
+        # load the geometries in a dictionary
         CrossSecGeom={}
 
         for rec in ListaCrossSec:
             CrossSecGeom[rec[0]]=rec[1]
 
-        # lettura punti di interpolazione
+        # reading of interpolation points
         # --------------------------------
 
-        # tipo di sezione i-esima
+        # type of section i-th
         NumSezTipo={}
 
-        # Caratteristiche della sezione
+        # Section characteristics
         NumSezElev={}
         NumSezProgr={}
         NumSezGeom={}
 
-        # numero di sezione a monte di i-esima
+        # cross-section number upstream of i-th
         NumSezMonte={}
-        # numero della sezione a valle di una sezione di monte
+        # cross-section number downstream of i-th
         NumSezValle={}
 
-        # numero di sezione di monte corrente
+        # current upstream section number
         NumMonte=-1
 
         # creo il dizionario dei punti a monte
@@ -1475,7 +1271,6 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         TabellaPoints='PathPoints'
 
-        # codice del sistema di riferimento della tabella
         sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NomeTabella.lower())
         cur.execute(sql)
         record=cur.fetchone()
@@ -1484,8 +1279,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         else:
             SourceEPSG=32632
 
-       # controllo la esistenza di dati pregressi
-        sql='SELECT id,type,elev,progr,ST_AsText(geom) FROM %s WHERE ID_Diga=%d ORDER BY id' % (TabellaPoints,ID_Diga)
+        sql='SELECT id,type,elev,progr,ST_AsText(geom) FROM %s WHERE DamID=%d ORDER BY id' % (TabellaPoints,DamID)
         cur.execute(sql)
         ListaTratti=cur.fetchall()
 
@@ -1493,7 +1287,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         if n <= 0:
 
-            errMsg = "Non ci sono dati per la diga num =%s \nEffettuare prima il calcolo delle sezioni principali !" % (ID_Diga)
+            errMsg = "There is no data for the dam num =%s \nFirst calculate the main cross-sections !" % (DamID)
             NotErr= bool()
             return NotErr, errMsg
 
@@ -1506,7 +1300,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
             NumSezProgr[NumSez]=rec[3]
             NumSezGeom[NumSez]=rec[4]
 
-            # aggiorna NumMonte
+            # update NumMonte
             if tipo==1:
                 if NumMonte>=0:
                     NumSezValle[NumMonte]=NumSez
@@ -1526,11 +1320,11 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
     conn.close()
 
     # ===============================
-    # creazione sezioni interpolate
+    # creating interpolated sections
     # ===============================
 
     # -----------------------------------------
-    # Crea lo shape file delle sezioni totali
+    # Create the shapefile of the total sections
     # -----------------------------------------
 
     # crea nuovo shapefile
@@ -1560,12 +1354,11 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
     bufferDistance = 50
 
-    # lista delle sezioni salvate
-    # viene utilizzate per la creazione congruente degli altri dati
+    # list of saved sections
     ListaNumSezTotOk=[]
 
 
-     # tratto di fiume del punto della sezione
+     # river reach of the section point
     dic_Sez_tratto_fiume={}
 
     for NumSez in NumSezTipo:
@@ -1593,24 +1386,18 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         try:
             if tipo==0:
 
-##                txt='Sez interp %d : monte = %d - valle = %d' % (NumSez,NumSezMonte[NumSez],NumSezValle[NumSezMonte[NumSez]])
-##                print (txt)
                 numMonte=NumSezMonte[NumSez]
                 SezMonteGeom=ogr.CreateGeometryFromWkt(CrossSecGeom[numMonte])
                 wktValle=CrossSecGeom[NumSezValle[numMonte]]
                 SezValleGeom=ogr.CreateGeometryFromWkt(wktValle)
-##                NewGeom = SezioneInterpolata(NumSez,pt_curr,SezMonteGeom,SezValleGeom)
                 NewGeom = SezioneInterpolata(pt_curr,SezMonteGeom,SezValleGeom)
 
                 try:
                     lengh1=NewGeom.Length()
 
-##                    wkt_debug1=NewGeom.ExportToWkt()
 
-                    # taglio lungo il dominio
+                    # clip by domain
                     NewGeom1=NewGeom.Intersection(DominoRing)
-
-##                    wkt_debug2=NewGeom1.ExportToWkt()
 
                     lengh2=NewGeom1.Length()
 
@@ -1635,8 +1422,6 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
             else:
 
-##                txt=' === Sezione principale  %s  ===' % NumSez
-##                print (txt)
                 NewGeom=ogr.CreateGeometryFromWkt(CrossSecGeom[NumSez])
 
                 try:
@@ -1681,9 +1466,8 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
     outDS2.Destroy()
 
-    # carica le geometrie delle sezioni da clippare
+    # loads the geometry of the sections to be clipped
     # ---------------------------------------------
-    # sorgente dei dati in lettura
     ds = driver.Open(CrossSecTot, 0)
     if ds is None:
         errMsg='Could not open file %s' % CrossSecTot
@@ -1691,13 +1475,11 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         return NotErr, errMsg
 
 
-    # leggo il layer dalla sorgente dei dati
     layer = ds.GetLayer()
 
-    # conto il numero di Feature
     n = layer.GetFeatureCount()
 
-    # dizionario geometrie
+    # dictionary geometries
     dic_Sez_ToClip={}
 
     feat = layer.GetNextFeature()
@@ -1711,18 +1493,16 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         feat = layer.GetNextFeature()
 
-    # chiudo la connessione
     ds.Destroy()
 
 
-    # controllo intersezione sezioni totali
-    # --------------------------------------
+    # intersection control of total cross-sections
+    # --------------------------------------------
 
     bufferClip=50.0
 
     distBufferClip=bufferClip*1.1
 
-    #sorgente dei dati in scrittura
     ds = driver.Open(CrossSecTot, 1)
     if ds is None:
         errMsg='Could not open file %s' % CrossSecTot
@@ -1730,27 +1510,25 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         return NotErr, errMsg
 
 
-    # leggo il layer dalla sorgente dei dati
     layer = ds.GetLayer()
 
-    # conto il numero di Feature
     n = layer.GetFeatureCount()
 
-    # dizionario dove salvato il punto di intersezione
+    # dictionary where to save the intersection point
     dic_Sez_PointIntersect={}
 
-    # dizionario dove salvato il buffer
+    # dictionary where to save the buffer
     dic_Sez_Clip={}
-    # dizionario se il buffer e' a destra
+
+    # dictionary of check if the buffer is on the right
     dic_Sez_lato_destro={}
 
-    # Lista sezioni clippate al primo ciclo  while
+    # List sections clipped at the first while loop
     lista_clipped=[]
 
-    # Lista sezioni di valle intersecate al primo ciclo  while
+    # List of downstream sections intersected at the first while loop
     lista_intersects=[]
 
-    # leggo la prima feature
     feat = layer.GetNextFeature()
 
     num_sez=len(ListaNumSezTotOk)
@@ -1760,7 +1538,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         NumSez_Monte=feat.GetField('id')
         line_monte_geom=feat.GetGeometryRef()
         ii_ini=ListaNumSezTotOk.index(NumSez_Monte)+1
-        # tratto corrente di linea di fiume
+        # current reach of the river line
         line_trattocorrente = ogr.CreateGeometryFromWkt(dic_Sez_tratto_fiume[NumSez_Monte])
 
         update_sez=bool()
@@ -1772,27 +1550,25 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
             line_valle= ogr.CreateGeometryFromWkt(wkt)
 
 
-            # controllo se le due linee non si intersecano
+            # check if the two lines do not intersect
             # ---------------------------------------------
             if line_valle.Crosses(line_monte_geom):
 
                 update_sez=bool('True')
 
-                # trova il punto di intersezione
+                # find the intersection point
                 pt_interes_sez=line_monte_geom.Intersection(line_valle)
 
-                # controllo se a sinistra o destra
+                # check if left or right
                 # --------------------------------
-
-                # controllo se a destra o sinistra del fiume
                 orientamento=ProdottoVettSezioni(line_monte_geom,line_valle)
                 if  orientamento>0:
-                    # si presume una intersezione in sponda sinistra
+                    # an intersection is assumed on the left bank
                     inters_destra=bool()
                 else:
                     inters_destra=bool('True')
 
-                # crea un buffer intorno al punto
+                # creates a buffer around the point
                 pt_poly = pt_interes_sez.Buffer(bufferClip)
 
                 if NumSez_Valle not in  lista_intersects:
@@ -1802,21 +1578,21 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                 dic_Sez_PointIntersect[NumSez_Valle]= pt_interes_sez.ExportToWkt()
                 dic_Sez_lato_destro[NumSez_Valle]= inters_destra
 
-                # esegue il clip di solo quella di monte
-                # la linea viene accorciata in modo da non toccare la sezione di valle
+                # executes the clip of only the one upstream
+                # the line is shortened so as not to touch the downstream section
                 lines=line_monte_geom.Difference(pt_poly)
 
-                # conta il numero di geometrie: vi possono essere casi in cui eliminando
-                # dalla linea la parte intersecata dal buffer si abbiano come risultato
-                # due linee di cui una  a destra ed una a sinistra
+                # counts the number of geometries: there may be cases where eliminating
+                # from the line the part intersected by the buffer is obtained as a result
+                # two lines, one on the right and one on the left
                 nn=lines.GetGeometryCount()
                 if nn>1:
                     for i in range(nn):
                         g = lines.GetGeometryRef(i)
-                        # sceglie la parte di linea che interseca l'asse del fiume
+                        # choose the part of the line that intersects the axis of the river
                         if g.Crosses(line_trattocorrente):
                             line_select=ogr.CreateGeometryFromWkt(g.ExportToWkt())
-                            # controllare il verso
+                            # check the direction
                             line=CheckVerso(distBufferClip,inters_destra,pt_interes_sez,line_select)
                             break
                 else:
@@ -1825,35 +1601,31 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                 wkt_monte_new=line.ExportToWkt()
                 line_monte_geom= ogr.CreateGeometryFromWkt(wkt_monte_new)
 
-        # salva le modifiche nello shapefile
+        # save changes in the shapefile
         if update_sez:
             feat.SetGeometry(line)
             layer.SetFeature(feat)
 
-        # leggo la feature successiva
+        # reading the next feature
         feat = layer.GetNextFeature()
 
-    # esegue l'eventuale clip dell'ultima sezione
+    # execute any clip in the last section
     if NumSez_Monte in lista_intersects:
 
         wkt=dic_Sez_ToClip[NumSez_Monte]
         line_valle= ogr.CreateGeometryFromWkt(wkt)
 
-        # tratto corrente di linea di fiume
         line_trattocorrente = ogr.CreateGeometryFromWkt(dic_Sez_tratto_fiume[NumSez])
 
         pt_interes_sez= ogr.CreateGeometryFromWkt(dic_Sez_PointIntersect[NumSez])
 
-        # controllo se a sinistra o destra
         # --------------------------------
         inters_destra= dic_Sez_lato_destro[NumSez]
 
         pt_poly=ogr.CreateGeometryFromWkt(dic_Sez_Clip[NumSez])
 
-        # esegue il clip della sezione corrente
         lines=line_valle.Difference(pt_poly)
 
-        # conta il numero di geometrie
         nn=lines.GetGeometryCount()
         if nn>1:
 
@@ -1861,7 +1633,6 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                 g = lines.GetGeometryRef(i)
                 if g.Crosses(line_trattocorrente):
                     line_select=ogr.CreateGeometryFromWkt(g.ExportToWkt())
-                    # controllare il verso
                     line=CheckVerso(distBufferClip,inters_destra,pt_interes_sez,line_select)
                     break
         else:
@@ -1871,33 +1642,29 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         layer.SetFeature(feat)
 
-    # chiudo la connessione
     ds.Destroy()
 
 
-    # salvo la linea dell'ultima sezione
+    # saving the line of the last section
     # ----------------------------------
-    #sorgente dei dati in lettura
+
     ds = driver.Open(CrossSecTot, 0)
     if ds is None:
         errMsg='Could not open file %s' % CrossSecTot
         NotErr= bool()
         return NotErr, errMsg
 
-    # leggo il layer dalla sorgente dei dati
     layer = ds.GetLayer()
 
-    # conto il numero di Feature
     n = layer.GetFeatureCount()
     feat_end = layer.GetFeature(n-1)
     NumSez_end=feat_end.GetField('id')
     line_valle=feat_end.GetGeometryRef()
     wkt_sez_end=line_valle.ExportToWkt()
 
-    # chiudo la connessione
     ds.Destroy()
 
-    # Crea anche il dizionario delle coordinate dei punti
+    # Also creates the dictionary of point coordinates
     dic_PointPath={}
 
     for NumPoint in NumSezTipo:
@@ -1906,52 +1673,47 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         punto=pt_curr.GetPoint()
 
-         # aggiunge al dizionario
+         # adds to the dictionary
         dic_PointPath[NumPoint]=punto
 
     # ---------------------------------------------------------
-    # crea i poligoni dei tratti  di fiume
+    # creates the river reach polygons
     # -------------------------------------
-    # e creazione del poligono globale verificando l'intersezione
+    # and creation of the global polygon verifying the intersection
     # ---------------------------------------------------------
 
     CreaPolygoni=1
 
     if CreaPolygoni>0:
 
-        # salva Dizionario con la lista dei punti poligono
+        # save Dictionary with the list of polygon points
         DicPuntiPoligono={}
 
-        # salva Dizionario con la geometria wkt del poligono finale clippato
+        # save Dictionary with the wkt geometry of the clipped final polygon
         DicPoligonoClip={}
 
-        # salva Dizionario con la lista dei punti dell'asse del fiume
+        # save Dictionary with the list of the points of the river axis
         DicPuntiAsse={}
 
-        # salva la lista dei numeri dei poligoni
+        # save the list of polygon numbers
         NumPolyList=[]
 
-        # Creo il poligono unione dei tratti da utilizzare per il clip
+        # Creating the polygon merge of reachs to be used for the clip
         # --------------------------------------------------------------
-        # inizializzo il poligono dei tratti
+        # initializing the reach polygon
         PoligonoUnioneTratti_0=ogr.Geometry(ogr.wkbPolygon)
 
-        #sorgente dei dati in lettura
         ds = driver.Open(CrossSecTot, 0)
         if ds is None:
             errMsg='Could not open file %s' % CrossSecTot
             NotErr= bool()
             return NotErr, errMsg
 
-
-        # leggo il layer dalla sorgente dei dati
         Inlayer = ds.GetLayer()
         Spatialref = Inlayer.GetSpatialRef()
         Spatialref.AutoIdentifyEPSG()
         SourceEPSG=int(Spatialref.GetAuthorityCode(None))
 
-
-        # crea nuovo shapefile
         shpnew3=CrossSecPoly
         if os.path.exists(shpnew3):
             driver.DeleteDataSource(shpnew3)
@@ -1964,7 +1726,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         outLayer3 = outDS3.CreateLayer('CrossSecPoly', Spatialref,geom_type=ogr.wkbPolygon)
 
-        # crea i nuovi campi id e Nome nello shapefile di output
+        # create the new id and Name fields in the output shapefile
         fieldDefn2 = ogr.FieldDefn('id', ogr.OFTInteger)
         outLayer3.CreateField(fieldDefn2)
         fieldDefn4 = ogr.FieldDefn('zmin', ogr.OFTReal)
@@ -1993,11 +1755,11 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                 feature.SetField('id', NumSValle)
                 feature.SetField('zmin', Zvalle)
 
-                # crea il poligono
+                # create the polygon
                 ring = ogr.Geometry(ogr.wkbLinearRing)
                 line_monte=ogr.CreateGeometryFromWkt(line_monte_wkt)
 
-                # controllo se le due linee non si intersecano
+                # check if the two lines do not intersect
                 # ---------------------------------------------
                 if not line_monte.Crosses(line_valle):
 
@@ -2008,7 +1770,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                     ring.AddPoint(line_valle.GetX(0),line_valle.GetY(0))
                     ring.AddPoint(line_monte.GetX(0),line_monte.GetY(0))
 
-                    # salvo i punti
+                    # saving the points
                     PuntiPoligono=[]
                     PuntiPoligono.append((line_monte.GetX(0),line_monte.GetY(0)))
                     PuntiPoligono.append((line_monte.GetX(1),line_monte.GetY(1)))
@@ -2020,11 +1782,11 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
                     pt_interes_sez=line_monte.Intersection(line_valle)
 
-                    # controllo distanza a sinistra
+                    # check the distance to the left
                     point = ogr.Geometry(ogr.wkbPoint)
                     point.AddPoint(line_monte.GetX(0),line_monte.GetY(0))
                     dist_sx=pt_interes_sez.Distance(point)
-                    # controllo distanza a destra
+                    # check the distance to the right
                     point.Destroy()
                     point = ogr.Geometry(ogr.wkbPoint)
                     point.AddPoint(line_monte.GetX(1),line_monte.GetY(1))
@@ -2032,12 +1794,12 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                     point.Destroy()
 
                     if dist_dx>dist_sx:
-                        # caso intersezione a sinistra
+                        # case of intersection on the left
                         ring.AddPoint(pt_interes_sez.GetX(0),pt_interes_sez.GetY(0))
                         ring.AddPoint(line_monte.GetX(1),line_monte.GetY(1))
                         ring.AddPoint(line_valle.GetX(1),line_valle.GetY(1))
                         ring.AddPoint(pt_interes_sez.GetX(0),pt_interes_sez.GetY(0))
-                        # salvo i punti
+                        # saving the points
                         PuntiPoligono=[]
                         PuntiPoligono.append((pt_interes_sez.GetX(0),pt_interes_sez.GetY(0)))
                         PuntiPoligono.append((line_monte.GetX(1),line_monte.GetY(1)))
@@ -2046,12 +1808,12 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                         DicPuntiPoligono[NumSValle]=PuntiPoligono
 
                     else:
-                        # caso intersezione a destra
+                        # case of intersection on the right
                         ring.AddPoint(line_monte.GetX(0),line_monte.GetY(0))
                         ring.AddPoint(pt_interes_sez.GetX(0),pt_interes_sez.GetY(0))
                         ring.AddPoint(line_valle.GetX(0),line_valle.GetY(0))
                         ring.AddPoint(line_monte.GetX(0),line_monte.GetY(0))
-                        # salvo i punti
+                        # saving the points
                         PuntiPoligono=[]
                         PuntiPoligono.append((line_monte.GetX(0),line_monte.GetY(0)))
                         PuntiPoligono.append((pt_interes_sez.GetX(0),pt_interes_sez.GetY(0)))
@@ -2061,7 +1823,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
                     pt_interes_sez.Destroy()
 
-                # salvo il numero nella lista
+                # saving the number in the list
                 NumPolyList.append(NumSValle)
 
                 poly_new=ogr.Geometry(ogr.wkbPolygon)
@@ -2070,25 +1832,25 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
                 numpt1=poly_new.GetGeometryRef(0).GetPointCount()
 
-                # interseca il poligono del dominio
+                # intersects the polygon of the domain
                 NewPoly=poly_new.Intersection(DominoRing)
 
                 if NewPoly!=None:
                     npoly=NewPoly.GetGeometryCount()
                     if  npoly>0:
                         numpt=NewPoly.GetGeometryRef(0).GetPointCount()
-                        # intersezione con l'asse del fiume
+                        # intersection with the axis of the river
                         TrattoStreamLine= StreamLine.Intersection(NewPoly)
                         nntratti=TrattoStreamLine.GetGeometryCount()
                         if nntratti>0:
-                            # per evitare problemi di tratti con anse uso la linea retta che unisce
-                            # il punto di monte con quello di valle
+                            # to avoid problems of reach with handles, use the straight line that joins
+                            # the upstream point with the downstream point
                             PuntiTratto=[]
                             PuntiTratto.append(dic_PointPath[NumMonte])
                             PuntiTratto.append(dic_PointPath[NumSValle])
                         else:
                             TrattoStream_max=TrattoStreamLine
-                            # estraggo i punti
+                            # extracting the points
                             PuntiTratto=[]
                             for iii in range(0, TrattoStream_max.GetPointCount()):
                                 # GetPoint returns a tuple not a Geometry
@@ -2099,9 +1861,9 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
                         poly_wkt=NewPoly.ExportToWkt()
                     else:
-                        # geometria assente !!
+                        # geometry does not exist !!
                         poly_wkt=NewPoly.ExportToWkt()
-                        # uso quella prima della intersezione
+                        # using the one before the intersection
                         NewPoly=ogr.CreateGeometryFromWkt(poly_new.ExportToWkt())
                         npoly=poly_new.GetGeometryCount()
                         geom_poly=poly_new.GetGeometryRef(0)
@@ -2121,8 +1883,8 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                         fout.close()
 
 
-                        # per evitare problemi di tratti con anse uso la linea retta che unisce
-                        # il punto di monte con quello di valle
+                        # to avoid problems of reach with handles, use the straight line that joins
+                        # the upstream point with the downstream point
                         PuntiTratto=[]
                         PuntiTratto.append(dic_PointPath[NumMonte])
                         PuntiTratto.append(dic_PointPath[NumSValle])
@@ -2131,14 +1893,14 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
                 else:
 
-                    # casi di mancata intersezione ??????
+                    # cases of missed intersection ??????
                     NewPoly=ogr.CreateGeometryFromWkt(poly_new.ExportToWkt())
                     npoly=poly_new.GetGeometryCount()
                     geom_poly=poly_new.GetGeometryRef(0)
                     numpt=geom_poly.GetPointCount()
 
                     poly_wkt=NewPoly.ExportToWkt()
-                    # salvo i dati
+                    # save the data
                     nome_prova=PathFiles +os.sep+ 'File_poly_%d.csv' % NumSValle
                     fout=open(nome_prova,'w')
                     txt='X;Y\n'
@@ -2151,27 +1913,23 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                     fout.close()
 
 
-                    # per evitare problemi di tratti con anse uso la linea retta che unisce
-                    # il punto di monte con quello di valle
                     PuntiTratto=[]
                     PuntiTratto.append(dic_PointPath[NumMonte])
                     PuntiTratto.append(dic_PointPath[NumSValle])
 
                     DicPuntiAsse[NumSValle]=PuntiTratto
 
-                # controllo intersezione con le parti a monte
+                # control of the intersection with the upstream parts
                 NewPolyDiff=NewPoly.Difference(PoligonoUnioneTratti_0)
 
-                # conta il numero di geometrie
+                # counts the number of geometries
                 nn=NewPolyDiff.GetGeometryCount()
                 if nn>1:
-                    # tratto corrente di linea di fiume
                     poly_centro = ogr.CreateGeometryFromWkt(dic_Sez_tratto_fiume[NumMonte])
                     for i in range(nn):
                         g = NewPolyDiff.GetGeometryRef(i)
                         wkt_debug= g.ExportToWkt()
 
-                        # sceglie la parte che interseca l'asse del fiume
                         if g.Intersect(poly_centro):
                             NewPoly_0=ogr.CreateGeometryFromWkt(g.ExportToWkt())
                             NewPoly=NewPoly_0.Buffer(0.1)
@@ -2179,12 +1937,12 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                 else:
                     NewPoly=NewPolyDiff.Buffer(0.1)
 
-                # unione
+                # union
                 nn0=PoligonoUnioneTratti_0.GetGeometryCount()
 
                 PoligonoUnioneTratti_0=PoligonoUnioneTratti_0.Union(NewPoly)
 
-                # controlla i casi con buchi
+                # check the cases with holes
                 nn1=PoligonoUnioneTratti_0.GetGeometryCount()
                 if nn1>1:
                     type_name=PoligonoUnioneTratti_0.GetGeometryName()
@@ -2218,7 +1976,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                         PoligonoUnioneTratti_0=None
                         PoligonoUnioneTratti_0=ogr.CreateGeometryFromWkt(wkt_max)
 
-                # salva il poligono clippato
+                # save the clipped polygon
                 DicPoligonoClip[NumSValle]= NewPoly.ExportToWkt()
 
                 feature.SetGeometry(NewPoly)
@@ -2227,13 +1985,13 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                 poly_new.Destroy()
                 NewPoly.Destroy()
 
-                # aggiorno per lo step successivo
+                # update for the next step
 
                 line_monte_wkt=wkt
 
                 NumMonte=NumSValle
 
-        # chiudo la connessione
+        # close the connection
         ds.Destroy()
 
         outDS3.Destroy()
@@ -2241,20 +1999,20 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         PoligonoUnioneTratti_Wkt=PoligonoUnioneTratti_0.ExportToWkt()
 
 
-    # Shapefile sezioni mediane
+    # Shapefile middle cross-section
     CreaSezioniMediane=1
 
     if CreaSezioniMediane>0:
 
-        # si presuppone di aver gia' memorizzato NumSezMonte e NumSezValle
+        # it is assumed that you have already stored NumSezMonte and NumSezValle
         n = len(ListaTratti)
 
-        # salva il buffer del buffer del punto di intersezione delle sezioni
-        # mediane con l'asse del fiume
+        # save the buffer of the intersection point of the middle cross-sections
+        # with the axis of the river
         dic_SezMediane_Clip={}
 
 
-        # crea nuovo shapefile dei punti sul fiume delle sezioni
+        # creates new shapefile of section points on the river
         # ------------------------------------------------------
         shpnew2=CrossMediePunto
         if os.path.exists(shpnew2):
@@ -2268,7 +2026,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         outLayer2 = outDS2.CreateLayer('PuntoMedio', dest_srs,geom_type=ogr.wkbPoint)
 
-        # crea nuovo shapefile delle sezioni
+        # creates a new section shapefile
         # ----------------------------------
         shpnew3=CrossMedie
         if os.path.exists(shpnew3):
@@ -2282,11 +2040,11 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         outLayer3 = outDS3.CreateLayer('SezioneMedia', dest_srs,geom_type=ogr.wkbLineString)
 
-        # crea i nuovi campi id e Nome nello shapefile di output
+        # create the new id and Name fields in the output shapefile
         fieldDefn2 = ogr.FieldDefn('id', ogr.OFTInteger)
         outLayer2.CreateField(fieldDefn2)
         outLayer3.CreateField(fieldDefn2)
-        # crea campo distanza punto medio
+        # create field midpoint distance
         fieldDefnDist = ogr.FieldDefn('dist1', ogr.OFTReal)
         outLayer3.CreateField(fieldDefnDist)
         fieldDefnProgr = ogr.FieldDefn('progr', ogr.OFTReal)
@@ -2301,21 +2059,21 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         featureDefn2 = outLayer2.GetLayerDefn()
         featureDefn3 = outLayer3.GetLayerDefn()
 
-        # leggo la prima feature
+        # reading the first feature
         NumSez=ListaTratti[0][0]
         ProgrMonte=NumSezProgr[NumSez]
         Z_monte= NumSezElev[NumSez]
 
         pt_monte=ogr.CreateGeometryFromWkt(NumSezGeom[NumSez])
 
-        # creo il primo punto
+        # creating the first point
         feature2 = ogr.Feature(featureDefn2)
         feature2.SetField('id', NumSez)
         feature2.SetGeometry(pt_monte)
         outLayer2.CreateFeature(feature2)
 
-        # creo la prima sezione
-        # ---------------------
+        # creating the first cross-section
+        # --------------------------------
         NewGeom=ogr.CreateGeometryFromWkt(CrossSecGeom[NumSez])
         feature3 = ogr.Feature(featureDefn3)
         feature3.SetField('id', NumSez)
@@ -2329,11 +2087,10 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         distanza=Geom_pt_sinistra.Distance(pt_monte)
         feature3.SetField('dist1', distanza)
 
-        # taglio lungo il dominio
+        # clipping along the domain
         pt1=pt_monte.GetPoint()
         pt_poly= pt_monte.Buffer(bufferClip)
 
-        # Taglio lungo il poligono del primo tratti
         Poly_curr=ogr.CreateGeometryFromWkt(DicPoligonoClip[ListaTratti[1][0]])
         Poly_curr=Poly_curr.Buffer(0.5)
         NewGeom=NewGeom.Intersection(Poly_curr)
@@ -2355,7 +2112,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         outLayer3.CreateFeature(feature3)
 
 
-        # salva il buffer
+        # save the buffer
         dic_SezMediane_Clip[NumSez]= pt_poly.ExportToWkt()
 
         numtratti=len(ListaTratti)
@@ -2364,7 +2121,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
             NumSez=ListaTratti[itratto][0]
 
-            # salta le sezioni non salvate
+            # skip unsaved sections
             if NumSez in ListaNumSezTotOk:
 
                 tipo=NumSezTipo[NumSez]
@@ -2373,16 +2130,13 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
                 pt_valle=ogr.CreateGeometryFromWkt(NumSezGeom[NumSez])
 
-                # crea il punto intermedio per la sezione
                 pt2=pt_valle.GetPoint()
                 pt_mean=PuntoMedio(pt1,pt2)
                 pt_curr=ogr.Geometry(ogr.wkbPoint)
                 pt_curr.AddPoint(pt_mean[0],pt_mean[1])
 
                 pt_poly = pt_curr.Buffer(bufferClip)
-                # salva il buffer
                 dic_SezMediane_Clip[NumSez]= pt_poly.ExportToWkt()
-
 
                 feature2 = ogr.Feature(featureDefn2)
                 feature2.SetField('id', NumSez)
@@ -2397,27 +2151,27 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
 
                 if tipo==1:
-                    # caso a monte di una sezione principale
+                    # case upstream a main cross-section
                     SezValleGeom=ogr.CreateGeometryFromWkt(CrossSecGeom[NumSez])
                     # trova la sezione di monte
                     numMonte=NumSezMonte[NumSez]
                     SezMonteGeom=ogr.CreateGeometryFromWkt(CrossSecGeom[numMonte])
 
                 else:
-                   # caso di una sezione intermedia
+                   # case of an intermediate section
                     numMonte=NumSezMonte[NumSez]
                     SezMonteGeom=ogr.CreateGeometryFromWkt(CrossSecGeom[numMonte])
                     wktValle=CrossSecGeom[NumSezValle[numMonte]]
                     SezValleGeom=ogr.CreateGeometryFromWkt(wktValle)
 
-                # calcola la sezione interpolate
+                # calculate the interpolate section
                 try:
-                    NewGeom = SezioneInterpolata(NumSez,pt_curr,SezMonteGeom,SezValleGeom)
+                    NewGeom = SezioneInterpolata(pt_curr,SezMonteGeom,SezValleGeom)
 
                     try:
                         lengh1=NewGeom.Length()
 
-                        # taglio lungo il poligono del tratto corrente
+                        # cut along the polygon of the current reach
                         Poly_curr=ogr.CreateGeometryFromWkt(DicPoligonoClip[NumSez])
                         NewGeom=NewGeom.Intersection(Poly_curr)
 
@@ -2439,19 +2193,13 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
                         feature3.SetGeometry(NewGeom)
 
-                    # calcola distanza del punto medio della sezione rispetto
-                    # al punto a sinistra (serve per la successiva interpolazione
-                    # di punti lungo la linea della sezione stessa)
                     pt_sinistra=NewGeom.GetPoint(0)
                     Geom_pt_sinistra=ogr.Geometry(ogr.wkbPoint)
                     Geom_pt_sinistra.AddPoint(pt_sinistra[0],pt_sinistra[1])
 
-                    # trova il punto di intersezione con l'asse del fiume
                     pt_intersect= NewGeom.Intersection(StreamLine)
                     if pt_intersect!=None:
-                        # controlla il numero di intersezioni
                         n_inters=pt_intersect.GetGeometryCount()
-                        # in caso di piu' punti sceglie quello piu' vicino al medio
                         if n_inters>0:
                             distgg=NewGeom.Length()
                             for iii in range(0, n_inters):
@@ -2465,7 +2213,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                     else:
                         ptt=pt_curr
 
-                    # distanza dal punto di intersezione con l'asse del fiume
+                    # distance from the point of intersection with the axis of the river
                     distanza=Geom_pt_sinistra.Distance(ptt)
                     feature3.SetField('dist1', distanza)
 
@@ -2480,22 +2228,20 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                 except:
                     pass
 
-                # passo al punto successivo
+                # next step
                 pt1=pt2
                 ProgrMonte=ProgrValle*1.0
                 Z_monte=Z_valle*1.0
 
             else:
-##                print ('Esclusa sez: %d' % NumSez )
-                txt='Esclusa sez: %d' % NumSez
+                txt='Excluding sez: %d' % NumSez
                 errMsg+='\n%s'% txt
 
-        # aggiungo l'ultima sezione
+        # adding the last section
         # =========================
 
-        # leggo l'ultima feature
         NumSez=ListaTratti[-1][0]
-        # controllo  e' fra le sezioni salvate
+
         if NumSez in ListaNumSezTotOk:
 
             ProgrMonte=NumSezProgr[NumSez]
@@ -2503,14 +2249,11 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
             pt_monte=ogr.CreateGeometryFromWkt(NumSezGeom[NumSez])
 
-            # creo l'ultimo punto
             feature2 = ogr.Feature(featureDefn2)
             feature2.SetField('id', NumSez)
             feature2.SetGeometry(pt_monte)
             outLayer2.CreateFeature(feature2)
 
-            # creo l'ultima sezione
-            # ---------------------
             NewGeom=ogr.CreateGeometryFromWkt(CrossSecGeom[NumSez])
             feature3 = ogr.Feature(featureDefn3)
             feature3.SetField('id', NumSez)
@@ -2527,7 +2270,6 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
             pt1=pt_monte.GetPoint()
             pt_poly= pt_monte.Buffer(bufferClip)
 
-            # taglio lungo l'ultimo tratto
             Poly_curr=ogr.CreateGeometryFromWkt(DicPoligonoClip[NumSez])
             Poly_curr=Poly_curr.Buffer(0.5)
             NewGeom=NewGeom.Intersection(Poly_curr)
@@ -2548,21 +2290,15 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
             outLayer3.CreateFeature(feature3)
 
-
-            # salva il buffer
             dic_SezMediane_Clip[NumSez]= pt_poly.ExportToWkt()
 
 
         # =========================
-        # chiudo la connessione
         outDS2.Destroy()
         outDS3.Destroy()
 
-        # Controllo intersezione sezioni mediane
+        # Check
         # --------------------------------------
-##        bufferClip=200.0
-
-        #sorgente dei dati in scrittura
         ds = driver.Open(CrossMedie, 1)
         if ds is None:
             errMsg='Could not open file %s' % CrossMedie
@@ -2570,18 +2306,13 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
             return NotErr, errMsg
 
 
-        # leggo il layer dalla sorgente dei dati
         layer = ds.GetLayer()
 
-        # conto il numero di Feature
         n = layer.GetFeatureCount()
 
-        # dizionario sezioni da clippare al secondo ciclo while
         dic_Sez_Clip={}
-        # Lista sezioni clippate al primo ciclo  while
         lista_clipped=[]
 
-        # leggo la prima feature
         feat = layer.GetNextFeature()
 
         line_monte=feat.GetGeometryRef()
@@ -2599,58 +2330,40 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
             wkt=line_valle.ExportToWkt()
 
-            # controllo se le due linee non si intersecano
-            # ---------------------------------------------
             line_monte_geom=ogr.CreateGeometryFromWkt(line_monte_wkt)
 
             if line_valle.Crosses(line_monte_geom):
 
-                # trova il punto di intersezione
                 pt_interes_sez=line_monte_geom.Intersection(line_valle)
-                # crea un buffer intorno al punto
                 pt_poly = pt_interes_sez.Buffer(bufferClip)
 
                 if  NumSez_Monte not in lista_clipped:
-                    # salva il buffer
                     dic_Sez_Clip[NumSez_Monte]=pt_poly.ExportToWkt()
 
-                # memorizza che la sezione  e' stata oggetto di clip
                 lista_clipped.append(NumSez_Valle)
-                # memorizza come prossima linea monte
                 line_monte_wkt= line_valle.ExportToWkt()
 
-                # esegue il clip di solo quella di valle
-                # la linea viene accorciata in modo da non toccare la sezione di monte
                 lines=line_valle.Difference(pt_poly)
 
-                # conta il numero di geometrie: vi possono essere casi in cui eliminando
-                # dalla linea la parte intersecata dal buffer si abbia come risultato
-                # due linee di cui una  a destra ed una s sinistra
                 nn=lines.GetGeometryCount()
                 if nn>1:
                     poly_centro= ogr.CreateGeometryFromWkt(dic_SezMediane_Clip[NumSez_Valle])
                     for i in range(nn):
                         g = lines.GetGeometryRef(i)
-                        # sceglie la parte di linea che interseca l'asse del fiume
                         if g.Crosses(poly_centro):
                             line=ogr.CreateGeometryFromWkt(g.ExportToWkt())
                             break
                 else:
                     line=lines
 
-                # salva le modifiche nello shapefile
                 feat.SetGeometry(line)
                 layer.SetFeature(feat)
 
             line_monte_wkt=wkt
             NumSez_Monte= NumSez_Valle
 
-            # leggo la feature successiva
             feat = layer.GetNextFeature()
 
-        # clip delle sezioni di monte
-        # ---------------------------
-        # riparte dall'inizio
         layer.ResetReading()
 
         feat = layer.GetNextFeature()
@@ -2665,10 +2378,8 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
                 pt_poly=ogr.CreateGeometryFromWkt(dic_Sez_Clip[NumSez])
 
-                # esegue il clip della sezione corrente
                 lines=line_valle.Difference(pt_poly)
 
-                # conta il numero di geometrie
                 nn=lines.GetGeometryCount()
                 if nn>1:
                     poly_centro= ogr.CreateGeometryFromWkt(dic_SezMediane_Clip[NumSez])
@@ -2684,21 +2395,16 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
                 layer.SetFeature(feat)
 
-            # leggo la feature successiva
             feat = layer.GetNextFeature()
 
-
-        # chiudo la connessione
         ds.Destroy()
 
-        # fine controllo
-
+        # end check
 
     CreaMediana=1
 
     if CreaMediana>0:
 
-        # crea nuovo shapefile
         shpnew4=LineaMediana
         if os.path.exists(shpnew4):
             driver.DeleteDataSource(shpnew4)
@@ -2712,20 +2418,16 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         outLayer4 = outDS4.CreateLayer('LineaMediana', dest_srs,geom_type=ogr.wkbLineString)
 
-        # crea il campo nello shapefile di output
         fieldDefn4 = ogr.FieldDefn('id', ogr.OFTInteger)
         outLayer4.CreateField(fieldDefn4)
 
         featureDefne4 = outLayer4.GetLayerDefn()
 
-        # creo la feature
         feature = ogr.Feature(featureDefne4)
         feature.SetField('id', 1)
 
-        # inizializzo la sua geometria
         line4=ogr.Geometry(ogr.wkbLineString)
 
-        # conto il numero di Feature in input
         n = len(ListaTratti)
 
         NumMonte=0
@@ -2736,45 +2438,37 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
             punto=pt_curr.GetPoint()
 
-            # aggiunge al dizionario
             dic_PointPath[NumPoint]=punto
 
-            # salta le sezioni non salvate
             if NumPoint in ListaNumSezTotOk:
                 line4.AddPoint(punto[0],punto[1])
 
         feature.SetGeometry(line4)
         outLayer4.CreateFeature(feature)
 
-        # salva in formato testo
         lineaMedianaWkt=line4.ExportToWkt()
-        # azzera la memoria
         line4.Destroy()
 
         outDS4.Destroy()
 
 
-    # Crea : Cross_Tot_Medie
+    # Create : Cross_Tot_Medie
     # ---------------------------
     CreaCross_Tot_Medie=1
 
     if CreaCross_Tot_Medie>0:
 
-        #sorgente dei dati in lettura
         ds = driver.Open(CrossSecTot, 0)
         if ds is None:
             errMsg='Could not open file %s' % CrossSecTot
             NotErr= bool()
             return NotErr, errMsg
 
-        # leggo il layer dalla sorgente dei dati
         Inlayer = ds.GetLayer()
         Spatialref = Inlayer.GetSpatialRef()
         Spatialref.AutoIdentifyEPSG()
         SourceEPSG=int(Spatialref.GetAuthorityCode(None))
 
-        # crea nuovo shapefile delle sezioni
-        # ----------------------------------
         shpnew3=Cross_Tot_Medie
         if os.path.exists(shpnew3):
             driver.DeleteDataSource(shpnew3)
@@ -2787,17 +2481,15 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         outLayer3 = outDS3.CreateLayer('SezioniTotMedie', dest_srs,geom_type=ogr.wkbLineString)
 
-        # crea i nuovi campi id e Nome nello shapefile di output
         fieldDefn2 = ogr.FieldDefn('id', ogr.OFTInteger)
         outLayer3.CreateField(fieldDefn2)
 
-        # crea il campo zmin
+        # create zmin field
         fieldDefnZmin = ogr.FieldDefn('zmin', ogr.OFTReal)
         outLayer3.CreateField(fieldDefnZmin)
 
         featureDefn3 = outLayer3.GetLayerDefn()
 
-        # leggo la prima feature
         feat = Inlayer.GetNextFeature()
 
         while feat:
@@ -2809,7 +2501,6 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
             feature.SetField('id', NumSez)
             feature.SetField('zmin', z_curr)
 
-            # leggo la geometria
             linea=feat.GetGeometryRef()
             feature.SetGeometry(linea)
             outLayer3.CreateFeature(feature)
@@ -2817,24 +2508,19 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
             feat = Inlayer.GetNextFeature()
 
-         # chiudo la connessione
         ds.Destroy()
 
-        # aggiungo le sezioni intermedie
-         #sorgente dei dati in lettura
+        # adding the intermediate sections
         ds = driver.Open(CrossMedie, 0)
         if ds is None:
             errMsg='Could not open file %s' % CrossMedie
             NotErr= bool()
             return NotErr, errMsg
 
-        # leggo il layer dalla sorgente dei dati
         Inlayer = ds.GetLayer()
 
-        # leggo la prima feature e la salto
         feat = Inlayer.GetNextFeature()
 
-        # leggo la seconda feature
         feat = Inlayer.GetNextFeature()
 
         while feat:
@@ -2846,7 +2532,6 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
             feature.SetField('id', -NumSez)
             feature.SetField('zmin', z_curr)
 
-            # leggo la geometria
             linea=feat.GetGeometryRef()
             feature.SetGeometry(linea)
             outLayer3.CreateFeature(feature)
@@ -2854,20 +2539,18 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
             feat = Inlayer.GetNextFeature()
 
 
-         # chiudo la connessione
         ds.Destroy()
-        # salvo
+        # save
         outDS3.Destroy()
 
 
 
-    # crea i poligoni dei tratti  di fiume divisi in destra e sinistra
+    # creates the polygons of the river reachs divided into right and left
     # ----------------------------------------------------------------
     CreaPolygoni2=1
 
     if CreaPolygoni2>0:
 
-        #sorgente dei dati in lettura
         ds = driver.Open(CrossSecPoly, 0)
         if ds is None:
             errMsg='Could not open file %s' % CrossSecPoly
@@ -2875,14 +2558,13 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
             return NotErr, errMsg
 
 
-        # leggo il layer dalla sorgente dei dati
         Inlayer = ds.GetLayer()
         Spatialref = Inlayer.GetSpatialRef()
         Spatialref.AutoIdentifyEPSG()
         SourceEPSG=int(Spatialref.GetAuthorityCode(None))
 
 
-        # crea nuovo shapefile
+        # create new shapefile
         shpnew5=CrossSecPoly2
         if os.path.exists(shpnew5):
             driver.DeleteDataSource(shpnew5)
@@ -2895,7 +2577,6 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         outLayer5 = outDS5.CreateLayer('CrossSecPoly_2', Spatialref,geom_type=ogr.wkbPolygon)
 
-        # crea i nuovi campi id e Nome nello shapefile di output
         fieldDefn2 = ogr.FieldDefn('id', ogr.OFTInteger)
         outLayer5.CreateField(fieldDefn2)
         fieldDefn5 = ogr.FieldDefn('lato', ogr.OFTInteger)
@@ -2907,42 +2588,38 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         while feat:
 
-            # legge il numero
             NumSez=feat.GetField('id')
 
-            # legge la geomeria
             PuntiPoligono=DicPuntiPoligono[NumSez]
             PuntiTratto=DicPuntiAsse[NumSez]
 
-            # legge il poligono del tratto clippato
             Poly_curr=ogr.CreateGeometryFromWkt(DicPoligonoClip[NumSez])
 
-            # crea i due poligoni
+            # create the two polygons
             for lato in range(2):
 
                 feature = ogr.Feature(featureDefn5)
                 feature.SetField('id', NumSez)
                 feature.SetField('lato', lato)
 
-                # crea il poligono
                 ring = ogr.Geometry(ogr.wkbLinearRing)
 
                 if lato==0:
 
-                    # punto a monte sinistro
+                    # left upstream point
                     pt=PuntiPoligono[0]
                     ring.AddPoint(pt[0],pt[1])
 
-                    # si aggiungono i punti dell'asse del fiume
+                    # the points of the river axis are added
                     # ..........................................
                     for pt in PuntiTratto:
                         ring.AddPoint(pt[0],pt[1])
 
-                    # punto a valle sinistro
+                    # left downstream point
                     pt=PuntiPoligono[3]
                     ring.AddPoint(pt[0],pt[1])
 
-                    # punto a monte sinistro
+                    # left upstream point
                     pt=PuntiPoligono[0]
                     ring.AddPoint(pt[0],pt[1])
 
@@ -2952,20 +2629,20 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
                 else:
 
-                    # punto a monte centrale
-                    # uso il primo punto del tratto
+                    # central upstream point
+                    # using the first point of reach
                     pt= PuntiTratto[0]
                     ring.AddPoint(pt[0],pt[1])
 
-                    # punto a monte destro
+                    # right upstream point
                     pt=PuntiPoligono[1]
                     ring.AddPoint(pt[0],pt[1])
 
-                    # punto a valle sinistro
+                    # left downstream point
                     pt=PuntiPoligono[2]
                     ring.AddPoint(pt[0],pt[1])
 
-                    # aggiunta punti dell'asse del fiume da valle verso monte
+                    # adding points of the river axis from downstream to upstream
                     for iii in range(len(PuntiTratto)-1,-1,-1):
                         pt=PuntiTratto[iii]
                         ring.AddPoint(pt[0],pt[1])
@@ -2975,7 +2652,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                     poly_new=ogr.Geometry(ogr.wkbPolygon)
                     poly_new.AddGeometry(ring)
 
-                # interseca il poligono del tratto corrente
+                # intersects the polygon of the current reach
                 NewPoly=poly_new.Intersection(Poly_curr)
 
                 if NewPoly!=None:
@@ -2983,16 +2660,16 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                     if  npoly>0:
                         numpt=NewPoly.GetGeometryRef(0).GetPointCount()
                     else:
-                        # geometria assente !!
+                        # No geometry !!
                         poly_wkt=NewPoly.ExportToWkt()
-                        # uso quella prima della intersezione
+                        # using the one before the intersection
                         NewPoly=ogr.CreateGeometryFromWkt(poly_new.ExportToWkt())
                         npoly=poly_new.GetGeometryCount()
                         geom_poly=poly_new.GetGeometryRef(0)
                         numpt=geom_poly.GetPointCount()
 
                         poly_wkt=NewPoly.ExportToWkt()
-                        # salvo i dati
+                        # save the data
                         nome_prova=PathFiles +os.sep+ 'File_poly_%d.csv' % NumSezValle
                         fout=open(nome_prova,'w')
                         txt='X;Y\n'
@@ -3005,14 +2682,14 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                         fout.close()
                 else:
 
-                    # casi di mancata intersezione ??????
+                    # cases of missed intersection ??????
                     NewPoly=ogr.CreateGeometryFromWkt(poly_new.ExportToWkt())
                     npoly=poly_new.GetGeometryCount()
                     geom_poly=poly_new.GetGeometryRef(0)
                     numpt=geom_poly.GetPointCount()
 
                     poly_wkt=NewPoly.ExportToWkt()
-                    # salvo i dati
+                    # save
                     nome_prova=PathFiles +os.sep+ 'File_poly_%d.csv' % NumSezValle
                     fout=open(nome_prova,'w')
                     txt='X;Y\n'
@@ -3034,32 +2711,31 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
             feat = Inlayer.GetNextFeature()
 
-        # chiudo la connessione
         outDS5.Destroy()
         ds.Destroy()
 
-    # creazione poligoni sinistra e destra fiume
+    # polygon creation left and right river
     # -------------------------------------------
     CreaPolygoni3=1
 
     if CreaPolygoni3>0:
 
-        # Creo il poligono unione dei tratti da utilizzare per il clip del fiume
+        # Creating the polygon, joining the reachs to be used for the river clip
         # ----------------------------------------------------------------------
         PoligonoUnioneTratti_0=ogr.CreateGeometryFromWkt(PoligonoUnioneTratti_Wkt)
 
 
-        # crea la lista dei punti della streamLine
-        # ========================================
+        # create the list of points in the streamLine
+        # ============================================
         End_cross_sec_line=ogr.CreateGeometryFromWkt(wkt_sez_end)
-        # interseca il poligono unione dei tratti
+        # intersects the polygon union of reachs
         NewStreamLine=StreamLine.Intersection(PoligonoUnioneTratti_0)
         if  NewStreamLine!=None:
             ListaPuntiStreamLine= SetStreamLinePoints(NewStreamLine,End_cross_sec_line)
         else:
             ListaPuntiStreamLine= SetStreamLinePoints(StreamLine,End_cross_sec_line)
 
-        # crea nuovo shapefile
+        # create the new shapefile
         shpnew6=PolySxDx
         if os.path.exists(shpnew6):
             driver.DeleteDataSource(shpnew6)
@@ -3072,7 +2748,6 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         outLayer5 = outDS5.CreateLayer('PolySxDx', Spatialref,geom_type=ogr.wkbPolygon)
 
-        # crea i nuovi campi id e Nome nello shapefile di output
         fieldDefn2 = ogr.FieldDefn('id', ogr.OFTInteger)
         outLayer5.CreateField(fieldDefn2)
         fieldDefn5 = ogr.FieldDefn('lato', ogr.OFTInteger)
@@ -3081,7 +2756,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         featureDefn5 = outLayer5.GetLayerDefn()
 
 
-        # creo il poligono sinistro
+        # creating the left polygon
         # ---------------------------
         feature = ogr.Feature(featureDefn5)
         feature.SetField('id', 0)
@@ -3091,19 +2766,19 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         numPunti=len(NumPolyList)
 
-        # lato sinistro
+        # left side
         for ii in range(numPunti):
             PuntiPoligono=DicPuntiPoligono[NumPolyList[ii]]
-            # punto a monte sinistro
+            # left upstream point
             pt=PuntiPoligono[0]
             ring.AddPoint(pt[0],pt[1])
 
-        # aggiungo il punto sinistro dell'ultima sezione indice 3
+        # adding the left point of the last section index 3
         PuntiPoligono=DicPuntiPoligono[NumPolyList[-1]]
         pt=PuntiPoligono[3]
         ring.AddPoint(pt[0],pt[1])
 
-        # aggiungo la line del fiume da valle verso monte
+        # adding points of the river axis from downstream to upstream
         for iii in range(len(ListaPuntiStreamLine)-1,-1,-1):
             pt=ListaPuntiStreamLine[iii]
             ring.AddPoint(pt[0],pt[1])
@@ -3113,7 +2788,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         poly_sx=ogr.Geometry(ogr.wkbPolygon)
         poly_sx.AddGeometry(ring)
 
-        # interseca il poligono del dominio
+        # intersects the polygon of the domain
         NewPoly=poly_sx.Intersection(DominoRing)
 
         if  NewPoly!=None:
@@ -3130,7 +2805,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
             ring.Destroy()
             poly_sx.Destroy()
 
-        # crea il poligono destro
+        # create the right polygon
         # -------------------------
         feature = ogr.Feature(featureDefn5)
         feature.SetField('id', 1)
@@ -3138,18 +2813,18 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         ring = ogr.Geometry(ogr.wkbLinearRing)
 
-        # aggiungo la line del fiume da monte verso valle
+        # adding the line of the river from upstream to the downstream
         for iii in range(len(ListaPuntiStreamLine)):
             pt=ListaPuntiStreamLine[iii]
             ring.AddPoint(pt[0],pt[1])
 
-        # lato destro da valle verso monte : indice 2
+        # right side from downstream to upstream: index 2
         for ii in range(numPunti-1,-1,-1):
             PuntiPoligono=DicPuntiPoligono[NumPolyList[ii]]
             pt=PuntiPoligono[2]
             ring.AddPoint(pt[0],pt[1])
 
-        # aggiunge l'ultimo punto
+        # adds the last point
         PuntiPoligono=DicPuntiPoligono[NumPolyList[0]]
         pt=PuntiPoligono[1]
         ring.AddPoint(pt[0],pt[1])
@@ -3159,7 +2834,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         poly_dx=ogr.Geometry(ogr.wkbPolygon)
         poly_dx.AddGeometry(ring)
 
-        # interseca il poligono del dominio
+        # intersects the polygon of the domain
         NewPoly=poly_dx.Intersection(DominoRing)
 
         if  NewPoly!=None:
@@ -3181,7 +2856,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         outDS5.Destroy()
 
 
-    # Creazione StreamDH.tif
+    # Creating the StreamDH.tif
     # ------------------------
     CreaCrid2=1
 
@@ -3217,7 +2892,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         # reading the entire file at once
         terreno = inbandElev.ReadAsArray(0, 0, colsElev, rowsElev).astype(np.float32)
 
-        # apre file curve con le sezioni
+        # opens  files with cross-sections
         # ------------------------------
         inDS1 = driver.Open(Cross_Tot_Medie, 0)
         if inDS1 is None:
@@ -3225,10 +2900,8 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
             NotErr= bool()
             return NotErr, errMsg
 
-        # apro il layer in lettura
         InlayerCurve = inDS1.GetLayer()
 
-        # mi leggo il sistema di riferimento
         spatialRef_sez=InlayerCurve.GetSpatialRef()
 
         feat_defn = InlayerCurve.GetLayerDefn()
@@ -3243,7 +2916,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         if flag_WL>0:
 
-            # genera un grid con la quota minima delle sezioni
+            # generates a grid with the minimum elevation of the sections
             GridSez=np.zeros((rowsElev,colsElev),np.float32)
 
             format = 'MEM'
@@ -3258,7 +2931,6 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
             if gt is not None and gt != (0.0, 1.0, 0.0, 0.0, 0.0, 1.0):
                 ds.SetGeoTransform(gt)
 
-            # imposta il sistema di riferimento uguale al modello del tiranti: se manca imposta il default
             if prj is not None and len(prj) > 0:
                 ds.SetProjection(prj)
             else:
@@ -3266,17 +2938,14 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
                 ds.SetProjection(prj)
 
             iBand=1
-            #CampoValore=["ATTRIBUTE=OBJECTID"]
             testo="ATTRIBUTE=%s"  % (nomecampoLivello)
             # Rasterize
             outband = ds.GetRasterBand(iBand)
 
-            # Rasterize
-            # azzero
             outband.WriteArray(GridSez, 0, 0)
             CampoValore=[testo]
 
-            # creo la mappa dei valori
+            # creating the map of values
             # -------------------------------------------------
             err = gdal.RasterizeLayer(ds, [iBand], InlayerCurve,
                     burn_values=[0],
@@ -3329,8 +2998,8 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
             if nnan>0:
                 Wdepth[checkMask]=Nodata
-            # nome del file output
-            PathFiles=os.path.dirname(ClipDEM)
+
+            # output file name
             FileDEM_out=PathFiles+os.sep+'StreamDH.tif'
 
             format = 'GTiff'
@@ -3393,16 +3062,14 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
             spatialRef.ImportFromWkt(prj)
         except:
             pass
-            # definisco un default per il riferimento
-            # imposto WGS84 UTM 32 N
             spatialRef.ImportFromEPSG(32632)
 
         terreno = inband.ReadAsArray(0, 0, cols, rows).astype(numpy.float)
         mask_Nodata= terreno==inNoData
 
 
-        # rasterizza i poligoni
-        # ====================
+        # rasterize the polygons
+        # ======================
         orig_data_source = ogr.Open(CrossSecPoly2)
         source_ds = ogr.GetDriverByName("Memory").CopyDataSource(orig_data_source, "")
         source_layer = source_ds.GetLayer()
@@ -3414,7 +3081,6 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         driver3 = gdal.GetDriverByName(format)
         driver3.Register()
 
-        PathFiles=os.path.dirname(ClipDEM)
         TrattiRaster=PathFiles+os.sep+'DestraSinistra.tif'
 
         dsRaster = driver3.Create(TrattiRaster, cols, rows, 1, type)
@@ -3422,7 +3088,6 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         if gt1 is not None and gt1 != (0.0, 1.0, 0.0, 0.0, 0.0, 1.0):
             dsRaster.SetGeoTransform(gt1)
 
-        # imposta il sistema di riferimento uguale al modello del Terreno: se manca imposta il default
         if prj is not None and len(prj) > 0:
             dsRaster.SetProjection(prj)
         else:
@@ -3435,7 +3100,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
 
         outNodata=-9999
 
-        # scrive -1 su tutta la matrice
+        # writes -1 to the whole array
         ClassTratti=numpy.zeros((rows,cols)).astype(numpy.int)
         ClassTratti=ClassTratti-1
 
@@ -3448,7 +3113,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         if err != 0:
             raise Exception("error rasterizing layer: %s" % err)
 
-        # scrive i Nodata
+        # writes Nodata
         MatriceDati=outband.ReadAsArray(0, 0, cols, rows)
         MatriceDati=numpy.choose(mask_Nodata,(MatriceDati,outNodata))
         outband.WriteArray(MatriceDati, 0, 0)
@@ -3460,7 +3125,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,ID_Diga):
         outband=None
 
         dsRaster=None
-        # chiude le sorgenti dei dati
+        # closes the data sources
         orig_data_source.Destroy()
 
 
@@ -3473,14 +3138,14 @@ if __name__ == '__main__':
     mydb_path_user='..'+ os.sep+'db'+os.sep+'USER_GeoDB.sqlite'
 
     # San Giuliano
-    ID_Diga=449
-    PathFiles='..'+ os.sep+ str(ID_Diga)
+    DamID=449
+    PathFiles='..'+ os.sep+ str(DamID)
     fileDEM=  PathFiles+ os.sep+'DTM_clip.tif'
 
-##    NotErr, errMsg= SetIntermediatePoints(mydb_path_user,ID_Diga,fileDEM)
-##
-##    print(NotErr,errMsg)
+    NotErr, errMsg= SetIntermediatePoints(mydb_path_user,PathFiles,fileDEM,DamID,)
 
-    NotErr, errMsg= SetCrossSec_2(mydb_path_user,PathFiles,fileDEM,ID_Diga)
+    print(NotErr,errMsg)
+
+    NotErr, errMsg= SetCrossSec_2(mydb_path_user,DamID,PathFiles,fileDEM,DamID)
 
     print(NotErr,errMsg)

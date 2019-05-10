@@ -21,6 +21,8 @@
 import os
 import shutil
 import sqlite3
+import time
+
 try:
     from osgeo import gdal
     gdal.TermProgress = gdal.TermProgress_nocb
@@ -41,6 +43,7 @@ except:
 from InterpolateCrossSec import SetIntermediatePoints, SetCrossSec_2
 from GridTools import GridDistanzaFiume, ModDTM, CurveAreaAltezza, ParamGeomHydro
 from RoutingCinemat import RunCinemat
+from CalFloodArea import  GridFloodingAreas
 
 class SimpleDambrk:
     """
@@ -59,7 +62,7 @@ class SimpleDambrk:
 
         self.myGDB_user=os.path.realpath(myGDB_user)
 
-        self.ID_Diga=ID_Diga=-1
+        self.DamID=-1
         self.DTM=''
         self.PathFiles=''
 
@@ -76,34 +79,41 @@ class SimpleDambrk:
         self.cur=cur
 
 
-    def set_dam(self,ID_Diga):
+    def set_dam(self,DamID):
 
         """
-        Definisce la diga corrente di cui effettuare i calcoli
+        Set the current dam to be calculated
         """
+        NotErr=bool('True')
+        errMsg='Ok'
 
-        self.ID_Diga=ID_Diga
+        NameTabella='DAMS'
 
-        NomeTabella='DAMS'
-
-        sql='SELECT Nome FROM %s WHERE ID_Diga=%d' % (NomeTabella,ID_Diga)
+        sql='SELECT Name FROM %s WHERE DamID=%d' % (NameTabella,DamID)
         self.cur.execute(sql)
         ChkDiga=self.cur.fetchone()
-        self.Name=ChkDiga[0]
 
-        self.PathFiles=self.root_dir+os.sep+ str(self.ID_Diga)
+        try:
+            self.Name=ChkDiga[0]
+            self.DamID=DamID
+            self.PathFiles=self.root_dir+os.sep+ str(self.DamID)
+        except:
+            errMsg = "Error %s dam data does not exists" % DamID
+            NotErr= bool()
+
+        return NotErr, errMsg
 
 
-    def add_dam(self,ID_Diga,Nome,TipoDiga,Volume_mlnm3,Altezza_m,Breccia_m,x,y):
+    def add_dam(self,DamID,Name,DamType,ResVolMcm,Height_m,BreachWidth,x,y):
 
         """
-        Aggiunge i dati di una nuova diga
+        Add the data of a new dam
         """
 
-        NomeTabella='DAMS'
+        NameTabella='DAMS'
 
-        # Controllo sistema riferimento della linea rispetto ai Catchments
-        sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NomeTabella.lower())
+        # Reference system check
+        sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NameTabella.lower())
         self.cur.execute(sql)
         record=self.cur.fetchone()
         if record!=None:
@@ -111,8 +121,8 @@ class SimpleDambrk:
         else:
             TargetEPSG=32632
 
-        # controllo se esiste gia
-        sql='SELECT Nome FROM %s WHERE ID_Diga=%d' % (NomeTabella,ID_Diga)
+        # check if it already exists
+        sql='SELECT Name FROM %s WHERE DamID=%d' % (NameTabella,DamID)
         self.cur.execute(sql)
         ChkDiga=self.cur.fetchone()
 
@@ -124,43 +134,67 @@ class SimpleDambrk:
         GeomWKT="GeomFromText('%s',%d)" % (WKT_Point,TargetEPSG)
 
         if ChkDiga==None:
-            sql='INSERT INTO %s (ID_Diga,Nome,TipoDiga,Volume_mlnm3,Altezza_m,Breccia_m,geom) VALUES (%d,"%s","%s",%s,%s,%s'  %  (NomeTabella,ID_Diga,Nome,TipoDiga,Volume_mlnm3,Altezza_m,Breccia_m)
+            sql='INSERT INTO %s (DamID,Name,DamType,ResVolMcm,Height_m,BreachWidth,geom) VALUES (%d,"%s","%s",%s,%s,%s'  %  (NameTabella,DamID,Name,DamType,ResVolMcm,Height_m,BreachWidth)
             sql+=', %s' % GeomWKT
             sql+=");"
         else:
-            sql='UPDATE %s SET Nome="%s", TipoDiga="%s", Volume_mlnm3=%s, Altezza_m=%s, Breccia_m=%s'  %  (NomeTabella,Nome,TipoDiga,Volume_mlnm3,Altezza_m,Breccia_m)
+            sql='UPDATE %s SET Name="%s", DamType="%s", ResVolMcm=%s, Height_m=%s, BreachWidth=%s'  %  (NameTabella,Name,DamType,ResVolMcm,Height_m,BreachWidth)
             sql+=', geom=%s' % GeomWKT
-            sql+=" WHERE ID_Diga=%d;" % ID_Diga
+            sql+=" WHERE DamID=%d;" % DamID
         self.cur.execute(sql)
 
         self.conn.commit()
 
-        self.ID_Diga=ID_Diga
-        self.Name=Nome
-        self.PathFiles=self.root_dir+os.sep+ str(self.ID_Diga)
+        self.DamID=DamID
+        self.Name=Name
+        PathFiles=self.root_dir+os.sep+ str(self.DamID)
+        self.PathFiles=os.path.abspath(PathFiles)
+        if not os.path.exists(self.PathFiles):
+            os.mkdir(self.PathFiles)
 
-
-    def add_StudyArea(self,shpfile):
+    def add_dam_from_shp(self,DamID,shpfile):
 
         """
-        Legge da uno shapefile e carica nel gdb il poligono del contorno dell'area di studio
+        Add dam data from a shapefile
         """
-
         NotErr=bool('True')
         errMsg='OK'
 
-        ID_Diga=self.ID_Diga
-        NomeDiga=self.Name
+        NameTabella='DAMS'
 
-        # lettura shapefile
+        sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NameTabella.lower())
+        self.cur.execute(sql)
+        record=self.cur.fetchone()
+        if record!=None:
+            TargetEPSG=record[0]
+        else:
+            TargetEPSG=32632
+
+        FieldsList=[]
+        FieldsListType={}
+
+
+        sql='PRAGMA table_info(%s);' % NameTabella
+        self.cur.execute(sql)
+        records=self.cur.fetchall()
+        for rec in records:
+            fieldname=rec[1]
+            if  fieldname !='DamID' and fieldname !='PKUID' and fieldname !='geom':
+                FieldsList.append(fieldname)
+                FieldsListType[fieldname]=rec[2]
+
+
+
+        # Reading shapefile path
         if not os.path.exists(shpfile):
             errMsg = "File %s does not exists"  % shpfile
             NotErr= bool()
             return NotErr, errMsg
 
-        # carico il driver dello shapefile
+        # load shapefile driver
         driver = ogr.GetDriverByName('ESRI Shapefile')
 
+        # open the shapefile
         ds = driver.Open(shpfile, 0)
         if ds is None:
             errMsg='Could not open file %s' % shpfile
@@ -168,13 +202,142 @@ class SimpleDambrk:
             return NotErr, errMsg
 
 
-        # leggo il layer dalla sorgente dei dati
+        # reading source ayer
+        layer = ds.GetLayer()
+        layerDefinition = layer.GetLayerDefn()
+        shp_field_list=[]
+        for i in range(layerDefinition.GetFieldCount()):
+            shpfieldName =  layerDefinition.GetFieldDefn(i).GetName()
+            shp_field_list.append(shpfieldName)
+
+        try:
+            filtro="DamID = %d" %(DamID)
+            layer.SetAttributeFilter(filtro)
+            numDam=layer.GetFeatureCount()
+            # reading first feature
+            feat = layer.GetNextFeature()
+            point_geom=feat.GetGeometryRef()
+            Spatialref = point_geom.GetSpatialReference()
+            Spatialref.AutoIdentifyEPSG()
+            OriginEPSG=int(Spatialref.GetAuthorityCode(None))
+            point_geom.FlattenTo2D()
+            WKT=point_geom.ExportToWkt()
+
+            if TargetEPSG!=OriginEPSG:
+                targetSR = osr.SpatialReference()
+                targetSR.ImportFromEPSG(TargetEPSG)
+                sourceSR = osr.SpatialReference()
+                sourceSR.ImportFromEPSG(OriginEPSG)
+                coordTrans = osr.CoordinateTransformation(sourceSR,targetSR)
+                trasformare=bool('True')
+            else:
+                trasformare=bool()
+
+            if trasformare:
+                geom2 = ogr.CreateGeometryFromWkt(WKT)
+                geom2.Transform(coordTrans)
+                wkt=geom2.ExportToWkt()
+                GeomWKT="GeomFromText('%s',%d)" % (wkt,TargetEPSG)
+            else:
+                GeomWKT="GeomFromText('%s',%d)" % (WKT,TargetEPSG)
+
+            # reading data fields
+            FieldValue={}
+            for field in FieldsList:
+                found=bool()
+                for  shpfieldName in  shp_field_list:
+                    if  field[:5].lower() in shpfieldName.lower():
+                        Value= feat.GetField(shpfieldName)
+                        FieldValue[field]=Value
+                        found='True'
+                        break
+                if not found:
+                    errMsg='Shape file %s error %s field not found' % (shpfile,field)
+                    NotErr= bool()
+                    return NotErr, errMsg
+        except:
+            errMsg='Shape file %s error in DamID field' % shpfile
+            NotErr= bool()
+            return NotErr, errMsg
+
+        # close the connection
+        ds.Destroy()
+
+        # controllo se esiste gia
+        sql='SELECT Name FROM %s WHERE DamID=%d' % (NameTabella,DamID)
+        self.cur.execute(sql)
+        ChkDiga=self.cur.fetchone()
+
+
+        if ChkDiga==None:
+            insert_values=''
+            sql='INSERT INTO %s (DamID'  %  (NameTabella)
+            insert_values=',geom) VALUES (%d' % DamID
+            for field in FieldsList:
+                sql+=',%s' % field
+                if 'VARCHAR' in FieldsListType[field]:
+                    insert_values+=',"%s"' % FieldValue[field]
+                else:
+                    insert_values+=',%s' % FieldValue[field]
+            sql+=insert_values
+            sql+=', %s' % GeomWKT
+            sql+=");"
+        else:
+            sql='UPDATE %s SET '  %  (NameTabella)
+            for field in FieldsList:
+                if 'VARCHAR' in FieldsListType[field]:
+                    sql+='%s="%s",' % (field,FieldValue[field])
+                else:
+                    sql+='%s=%s,' % (field,FieldValue[field])
+            sql+=' geom=%s' % GeomWKT
+            sql+=" WHERE DamID=%d;" % DamID
+        self.cur.execute(sql)
+
+        self.conn.commit()
+
+        self.DamID=DamID
+        self.Name=FieldValue['Name']
+        PathFiles=self.root_dir+os.sep+ str(self.DamID)
+        self.PathFiles=os.path.abspath(PathFiles)
+        if not os.path.exists(self.PathFiles):
+            os.mkdir(self.PathFiles)
+
+        return NotErr, errMsg
+
+    def add_StudyArea(self,shpfile):
+
+        """
+        Read from a shapefile and loads the polygon of the boundary of the study area into the gdb
+        """
+
+        NotErr=bool('True')
+        errMsg='OK'
+
+        DamID=self.DamID
+        NameDiga=self.Name
+
+        # Reading shapefile path
+        if not os.path.exists(shpfile):
+            errMsg = "File %s does not exists"  % shpfile
+            NotErr= bool()
+            return NotErr, errMsg
+
+        # load shapefile driver
+        driver = ogr.GetDriverByName('ESRI Shapefile')
+
+        # open the shapefile
+        ds = driver.Open(shpfile, 0)
+        if ds is None:
+            errMsg='Could not open file %s' % shpfile
+            NotErr= bool()
+            return NotErr, errMsg
+
+
+        # reading source ayer
         layer = ds.GetLayer()
 
-        # conto il numero di Feature
         n = layer.GetFeatureCount()
 
-        # leggo la prima feature
         feat = layer.GetNextFeature()
 
         geom=feat.GetGeometryRef()
@@ -185,7 +348,7 @@ class SimpleDambrk:
         geom.FlattenTo2D()
         TotalArea=geom.GetArea()
 
-        # controllo di avere un MULTIPOLIGON
+        # check if MULTIPOLYGON
         TipoGeom=geom.GetGeometryName()
         if TipoGeom=='POLYGON':
             multipolygon = ogr.Geometry(ogr.wkbMultiPolygon)
@@ -194,13 +357,11 @@ class SimpleDambrk:
         elif geom.GetGeometryName()=='MULTIPOLYGON':
             WKT=geom.ExportToWkt()
 
-        # chiudo la connessione
         ds.Destroy()
 
-        NomeTabella='PoligonoValleDiga'
+        NameTabella='StudyArea'
 
-        # codice del sistema di riferimento della tabella
-        sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NomeTabella.lower())
+        sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NameTabella.lower())
         self.cur.execute(sql)
         record=self.cur.fetchone()
         if record!=None:
@@ -226,19 +387,18 @@ class SimpleDambrk:
         else:
             GeomWKT="GeomFromText('%s',%d)" % (WKT,TargetEPSG)
 
-        # controllo se esiste gia
-        sql='SELECT Nome FROM %s WHERE ID_Diga=%d' % (NomeTabella,ID_Diga)
+        sql='SELECT Name FROM %s WHERE DamID=%d' % (NameTabella,DamID)
         self.cur.execute(sql)
         ChkDiga=self.cur.fetchone()
 
         if ChkDiga==None:
-            sql='INSERT INTO %s (ID_Diga,Nome,Area,geom) VALUES (%d,"%s",%s'  %  (NomeTabella,ID_Diga,NomeDiga,TotalArea)
+            sql='INSERT INTO %s (DamID,Name,Area,geom) VALUES (%d,"%s",%s'  %  (NameTabella,DamID,NameDiga,TotalArea)
             sql+=', %s' % GeomWKT
             sql+=");"
         else:
-            sql='UPDATE %s SET Nome="%s", Area=%s'  %  (NomeTabella,NomeDiga,TotalArea)
+            sql='UPDATE %s SET Name="%s", Area=%s'  %  (NameTabella,NameDiga,TotalArea)
             sql+=', geom=%s' % GeomWKT
-            sql+=" WHERE ID_Diga=%d;" % ID_Diga
+            sql+=" WHERE DamID=%d;" % DamID
         self.cur.execute(sql)
 
         self.conn.commit()
@@ -248,22 +408,20 @@ class SimpleDambrk:
     def add_RiverPath(self,shpfile):
 
         """
-        Legge da uno shapefile e carica nel gdb la linea dell'asse del fiume a valle della diga
+        Read from a shapefile the line of the river path downstream of the dam and load it into the gdb
         """
 
         NotErr=bool('True')
         errMsg='OK'
 
-        ID_Diga=self.ID_Diga
-        NomeDiga=self.Name
+        DamID=self.DamID
+        NameDiga=self.Name
 
-        # lettura shapefile
         if not os.path.exists(shpfile):
             errMsg = "File %s does not exists"  % shpfile
             NotErr= bool()
             return NotErr, errMsg
 
-        # carico il driver dello shapefile
         driver = ogr.GetDriverByName('ESRI Shapefile')
 
         ds = driver.Open(shpfile, 0)
@@ -273,13 +431,10 @@ class SimpleDambrk:
             return NotErr, errMsg
 
 
-        # leggo il layer dalla sorgente dei dati
         layer = ds.GetLayer()
 
-        # conto il numero di Feature
         n = layer.GetFeatureCount()
 
-        # leggo la prima feature
         feat = layer.GetNextFeature()
 
         line_sez=feat.GetGeometryRef()
@@ -292,14 +447,12 @@ class SimpleDambrk:
 
         WKT=line_sez.ExportToWkt()
 
-        # chiudo la connessione
         ds.Destroy()
 
 
-        NomeTabellaLinee='LineaValleDiga'
+        NameTabellaLinee='Downstreampath'
 
-        # codice del sistema di riferimento della tabella
-        sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NomeTabellaLinee.lower())
+        sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NameTabellaLinee.lower())
         self.cur.execute(sql)
         record=self.cur.fetchone()
         if record!=None:
@@ -327,19 +480,18 @@ class SimpleDambrk:
 
 
 
-        # controllo se esiste gia la linea a valle della diga in oggetto
-        sql='SELECT Nome FROM %s WHERE ID_Diga=%d' % (NomeTabellaLinee,ID_Diga)
+        sql='SELECT Name FROM %s WHERE DamID=%d' % (NameTabellaLinee,DamID)
         self.cur.execute(sql)
         ChkDiga=self.cur.fetchone()
 
         if ChkDiga==None:
-            sql='INSERT INTO %s (ID_Diga,Nome,TotalLength,geom) VALUES (%d,"%s",%s'  %  (NomeTabellaLinee,ID_Diga,NomeDiga,TotalLength)
+            sql='INSERT INTO %s (DamID,Name,TotalLength,geom) VALUES (%d,"%s",%s'  %  (NameTabellaLinee,DamID,NameDiga,TotalLength)
             sql+=', %s' % GeomWKT
             sql+=");"
         else:
-            sql='UPDATE %s SET Nome="%s", TotalLength=%s'  %  (NomeTabellaLinee,NomeDiga,TotalLength)
+            sql='UPDATE %s SET Name="%s", TotalLength=%s'  %  (NameTabellaLinee,NameDiga,TotalLength)
             sql+=', geom=%s' % GeomWKT
-            sql+=" WHERE ID_Diga=%d;" % ID_Diga
+            sql+=" WHERE DamID=%d;" % DamID
         self.cur.execute(sql)
 
         self.conn.commit()
@@ -349,22 +501,20 @@ class SimpleDambrk:
     def add_MainCrossSec(self,shpfile):
 
         """
-        Legge da uno shapefile e carica nel gdb le linee della traccia delle sezioni principali
+        Reads from a shapefile the lines of the main sections and loads them into the gdb
         """
 
         NotErr=bool('True')
         errMsg='OK'
 
-        ID_Diga=self.ID_Diga
-        NomeDiga=self.Name
+        DamID=self.DamID
+        NameDiga=self.Name
 
-        # lettura shapefile
         if not os.path.exists(shpfile):
             errMsg = "File %s does not exists"  % shpfile
             NotErr= bool()
             return NotErr, errMsg
 
-        # carico il driver dello shapefile
         driver = ogr.GetDriverByName('ESRI Shapefile')
 
         ds = driver.Open(shpfile, 0)
@@ -373,10 +523,9 @@ class SimpleDambrk:
             NotErr= bool()
             return NotErr, errMsg
 
-        NomeTabella='MainCrossSec'
+        NameTabella='MainCrossSec'
 
-        # codice del sistema di riferimento della tabella
-        sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NomeTabella.lower())
+        sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (NameTabella.lower())
         self.cur.execute(sql)
         record=self.cur.fetchone()
         if record!=None:
@@ -384,8 +533,7 @@ class SimpleDambrk:
         else:
             TargetEPSG=32632
 
-        # controllo se esistono gia la linea a valle della diga in oggetto
-        sql='SELECT id FROM %s WHERE ID_Diga=%d' % (NomeTabella,ID_Diga)
+        sql='SELECT id FROM %s WHERE DamID=%d' % (NameTabella,DamID)
         self.cur.execute(sql)
         ChkDiga=self.cur.fetchone()
         if ChkDiga==None:
@@ -394,8 +542,6 @@ class SimpleDambrk:
             ReplaceCrossSec=bool('True')
 
 
-        # leggo il layer dalla sorgente dei dati
-        # --------------------------------------
         layer = ds.GetLayer()
         Spatialref = layer.GetSpatialRef()
         Spatialref.AutoIdentifyEPSG()
@@ -420,6 +566,8 @@ class SimpleDambrk:
                 count+=1
                 try:
                     SecId=feature.GetField("id")
+                    if SecId==None:
+                        SecId= count
                 except:
                     SecId=count
                 geom = feature.GetGeometryRef()
@@ -438,7 +586,7 @@ class SimpleDambrk:
         if featureCount>0:
 
             if ReplaceCrossSec:
-                sql='DELETE FROM %d WHERE ID_Diga=%d;' % (NomeTabella,ID_Diga)
+                sql='DELETE FROM %d WHERE DamID=%d;' % (NameTabella,DamID)
                 self.cur.execute(sql)
                 self.conn.commit()
 
@@ -446,7 +594,7 @@ class SimpleDambrk:
                 wkt=CrossSecId_wkt[ii]
                 GeomWKT="GeomFromText('%s',%d)" % (wkt,TargetEPSG)
 
-                sql='INSERT INTO %s (ID_Diga,id,edit,geom) VALUES (%d'  %  (NomeTabella,ID_Diga)
+                sql='INSERT INTO %s (DamID,id,edit,geom) VALUES (%d'  %  (NameTabella,DamID)
                 sql+=',%d' %  ii
                 sql+=',%d' %  0
                 sql+=',%s' % GeomWKT
@@ -473,7 +621,7 @@ class SimpleDambrk:
 
 
         """
-        Assegna il path del file del DTM
+        Set the path of the DTM file
         """
 
         NotErr=bool('True')
@@ -490,74 +638,66 @@ class SimpleDambrk:
 
     def Calc_IntermediatePoints(self):
         """
-        Effettua il tracciamento, sull'asse del fiume, dei punti intermedi alle sezioni principali
+        Calculate the location, on the river path, of intermediate points between the main cross sections
         """
         NotErr=bool('True')
         errMsg='Ok'
 
-        ID_Diga=self.ID_Diga
+        DamID=self.DamID
         mydb_path_user=self.myGDB_user
         fileDEM=self.DTM
         PathFiles=self.PathFiles
 
-##        NotErr, errMsg= SetIntermediatePoints(mydb_path_user,ID_Diga,fileDEM,DistanzaSezInterp,DeltaSezPrincipale)
-        NotErr, errMsg= SetIntermediatePoints(mydb_path_user,ID_Diga,PathFiles,fileDEM)
+##        NotErr, errMsg= SetIntermediatePoints(mydb_path_user,fileDEM,DamID,DistanzaSezInterp,DeltaSezPrincipale)
+        NotErr, errMsg= SetIntermediatePoints(mydb_path_user,PathFiles,fileDEM,DamID)
 
         return NotErr, errMsg
 
     def Calc_IntermediateCrossSections(self):
         """
-        Effettua il tracciamento delle sezioni intermedie mediante interpolazione fra quelle pricipali
+        Calculate the location, on the river path, of intermediate cross sections between the main cross sections
         """
         NotErr=bool('True')
         errMsg='Ok'
 
-        ID_Diga=self.ID_Diga
+        DamID=self.DamID
         mydb_path_user=self.myGDB_user
         fileDEM=self.DTM
         PathFiles=self.PathFiles
 
-        NotErr, errMsg= SetCrossSec_2(mydb_path_user,ID_Diga,PathFiles,fileDEM)
+        NotErr, errMsg= SetCrossSec_2(mydb_path_user,PathFiles,fileDEM,DamID)
 
         return NotErr, errMsg
 
     def Calc_ValleyGeometry(self):
 
         """
-        Divide la zona di studio in tratti compresi fra le sezioni intermedie e
-        valuta le caratteristiche geometriche idrauliche dei vari tratti a partire dal DTM
+        Divide the study area into sections between the intermediate sections and
+        evaluates the geometrical and hydraulic characteristics of the various sections starting from the DTM
         """
         NotErr=bool('True')
         errMsg='Ok'
 
-        ID_Diga=self.ID_Diga
+        DamID=self.DamID
         mydb_path_user=self.myGDB_user
         PathFiles=self.PathFiles
         fileDEM=self.DTM
 
-        # creazione grid Distances.tif: distanza laterale dall'asse del fiume
-        NotErr, errMsg= GridDistanzaFiume(mydb_path_user,ID_Diga,PathFiles,fileDEM)
+        # grid creation Distances.tif: lateral distance from the river path
+        NotErr, errMsg= GridDistanzaFiume(mydb_path_user,DamID,PathFiles,fileDEM)
 
         if NotErr:
-            # modifica delle quote del DTM affinche' ci sia sempre una pendenza
-            # minima verso l'asse del fiume. Risultato: StreamDHFilled.tif
 
-            NotErr, errMsg= ModDTM(mydb_path_user,ID_Diga,PathFiles,fileDEM)
+            NotErr, errMsg= ModDTM(mydb_path_user,DamID,PathFiles,fileDEM)
 
             if NotErr:
-                # CreaCurveAreaAltezza: effettua il conteggio, per ogni tratto,
-                # e per ogni dh con passo 1 metro, del numero di celle
-                # soggiacenti la differenza di altezza dh dal fiume
-                # risultato: MatricePixel.csv
 
-                NotErr, errMsg= CurveAreaAltezza(mydb_path_user,ID_Diga,PathFiles)
+                NotErr, errMsg= CurveAreaAltezza(mydb_path_user,DamID,PathFiles)
 
 
                 if NotErr:
-                    # ParametriGeomIdraulici: legge  MatricePixel.csv e crea
-                    # MatriceAexp.csv: file con le curve geometriche ed idrauliche
 
-                    NotErr, errMsg= ParamGeomHydro(mydb_path_user,ID_Diga,PathFiles)
+                    NotErr, errMsg= ParamGeomHydro(mydb_path_user,DamID,PathFiles)
 
                     return NotErr, errMsg
 
@@ -575,14 +715,14 @@ class SimpleDambrk:
     def DamBreakPropagation(self):
 
         """
-        Calcola la propagazione dell'onda di ipotetico dam break
-        tenendo conto della geometria della valle
+        Calculate the propagation of the hypothetical dam break wave
+        taking into account the geometry of the valley
         """
 
         NotErr=bool('True')
         errMsg='Ok'
 
-        ID_Diga=self.ID_Diga
+        DamID=self.DamID
         mydb_path_user=self.myGDB_user
         PathFiles=self.PathFiles
 
@@ -590,13 +730,13 @@ class SimpleDambrk:
 
             try:
 
-                NomeFileSezioni=PathFiles+os.sep+'CrossSecMean.shp'
+                NameFileSezioni=PathFiles+os.sep+'CrossSecMean.shp'
 
-                if os.path.exists(NomeFileSezioni):
+                if os.path.exists(NameFileSezioni):
 
                     grafico2=0
-                    # calcolo propagazione
-                    NotErr, errMsg= RunCinemat(mydb_path_user,ID_Diga,PathFiles,grafico2)
+
+                    NotErr, errMsg= RunCinemat(mydb_path_user,DamID,PathFiles,grafico2)
 
                     if not NotErr:
 
@@ -605,7 +745,7 @@ class SimpleDambrk:
                         return NotErr, errMsg
 
                 else:
-                    errMsg = "File %s does not exists"  % NomeFileSezioni
+                    errMsg = "File %s does not exists"  % NameFileSezioni
                     NotErr= bool()
                     return NotErr, errMsg
 
@@ -625,16 +765,15 @@ class SimpleDambrk:
     def Chk_Q_H_max(self):
 
         """
-        Controlla l'esistenza risultati della propagazione
+        Check if propagation results exists
         """
         Ok=bool()
 
         if os.path.exists(self.myGDB_user):
 
-            NomeTabella='Q_H_max'
+            NameTabella='Q_H_max'
 
-            # controllo se esistono i risultati della propagazione
-            sql='SELECT PixDist FROM %s WHERE ID_Diga=%d' % (NomeTabella,self.ID_Diga)
+            sql='SELECT PixDist FROM %s WHERE DamID=%d' % (NameTabella,self.DamID)
             self.cur.execute(sql)
             ChkDiga=cur.fetchone()
 
@@ -645,14 +784,16 @@ class SimpleDambrk:
 
         return Ok
 
-    def CalcFloodArea(self):
+    def CalcFloodingArea(self,UseEnergyHead):
 
         """
-        Calcola la mappa dell'area inondabile
+        Calculate the map of the floodable area
         """
-        # Calcola la propagazione dell'onda per la seconda volta
-        # tenendo conto della geometria delle sezioni tratta dal DTM
-        ID_Diga=self.ID_Diga
+
+        NotErr=bool('True')
+        errMsg='Ok'
+
+        DamID=self.DamID
         mydb_path_user=self.myGDB_user
         PathFiles=self.PathFiles
 
@@ -660,141 +801,122 @@ class SimpleDambrk:
 
             try:
 
-                NomeFileSezioni=PathFiles+os.sep+'CrossSecMean.shp'
+                NameFileSezioni=PathFiles+os.sep+'CrossSecMean.shp'
 
-                if os.path.exists(NomeFileSezioni):
+                if os.path.exists(NameFileSezioni):
 
+                    NotErr, errMsg = GridFloodingAreas(mydb_path_user,PathFiles,DamID,UseEnergyHead)
 
-                    TargetTabella='AreaInondabileValleDiga'
+                    if not NotErr:
 
-                    # codice del sistema di riferimento della tabella
-                    sql="SELECT srid FROM geometry_columns WHERE f_table_name='%s'" % (TargetTabella.lower())
-                    cur.execute(sql)
-                    record=cur.fetchone()
-                    if record!=None:
-                        OriginEPSG=record[0]
-                    else:
-                        OriginEPSG=32632
+                        errMsg = "Error calc floading area "
+                        NotErr= bool()
+                        return NotErr, errMsg
 
-                    # calcolo area inondabile
-                    NotErr, errMsg = GridAreeInondabili(mydb_path_user,ID_Diga)
-
-
-                    if NotErr:
-
-                        QMessageBox.information(None, "SimpleDambrk", self.tr("Eseguito calcolo area inondabile"))
-
-                        self.ControlloTab3()
-                        self.ControlloTab4()
-
-##                        # effettuo il salvataggio
-##                        sql='SELECT PKUID,id FROM %s WHERE ID_Diga=%d' % (TargetTabella,ID_Diga)
-##                        cur.execute(sql)
-##                        ListaTratti=cur.fetchall()
-##                        if len(ListaTratti)>0:
-##                            # cancello ed aggiungo
-##                            sql='DELETE FROM %s WHERE ID_Diga=%d' % (TargetTabella,ID_Diga)
-##                            cur.execute(sql)
-##                            conn.commit()
-##                        # aggiungo
-##                        for rec in MatriceRisultati:
-##                            sql='INSERT INTO %s (ID_Diga,id,DV,FloodSeverity,WarningTimeMin,FatalityRate,geom) VALUES (%d'  %  (TargetTabella,ID_Diga)
-##                            sql+=',%d,%.2f,"%s",%d,%.3f' % (rec[0],rec[1],rec[2],rec[3],rec[4])
-##                            poly=ogr.CreateGeometryFromWkt(rec[5])
-##                            area=poly.GetArea()
-##
-##                            # controllo di avere un MULTIPOLIGON
-##                            TipoGeom=poly.GetGeometryName()
-##                            if TipoGeom=='POLYGON':
-##                                multipolygon = ogr.Geometry(ogr.wkbMultiPolygon)
-##                                multipolygon.AddGeometry(poly)
-##                                wkt2=multipolygon.ExportToWkt()
-##                            elif poly.GetGeometryName()=='MULTIPOLYGON':
-##                                wkt2=poly.ExportToWkt()
-##                            poly2=ogr.CreateGeometryFromWkt(wkt2)
-##                            area2=poly2.GetArea()
-##
-##                            GeomWKT="GeomFromText('%s',%d)" % (wkt2,OriginEPSG)
-##
-##                            sql+=',%s' % GeomWKT
-##                            sql+=');'
-##                            cur.execute(sql)
-##                            # prova
-##                            if rec[0]==1:
-##                                sql='INSERT INTO AreaInondabileValleDigaTmp (ID_Diga,geom) VALUES (%d,%s);'  %  (ID_Diga,GeomWKT)
-##                                cur.execute(sql)
-##                                conn.commit()
-##
-##
-##                        conn.commit()
-
-##                        QMessageBox.information(None, "SimpleDambrk", self.tr("Eseguito Salvataggio Area Inondabile"))
-                        self.pushButton_ZoomAreaInondabile.setEnabled(True)
-
-                    else:
-                        QMessageBox.information(None, "SimpleDambrk", errMsg)
-                        self.pushButton_ZoomAreaInondabile.setEnabled(False)
-
-
-                    # Close communication with the database
-                    cur.close()
-                    conn.close()
                 else:
-
-                    errMsg =self.tr("Attenzione manca CrossSecMean.shp : effettuare prima il calcolo delle sezioni a valle !")
-
+                    errMsg = "File %s does not exists"  % NameFileSezioni
+                    NotErr= bool()
+                    return NotErr, errMsg
 
             except:
-                pass
+
+                errMsg = "Error calc floading area"
+                NotErr= bool()
+                return NotErr, errMsg
+        else:
+
+            errMsg = "File %s does not exists"  % mydb_path_user
+            NotErr= bool()
+            return NotErr, errMsg
+
+        return NotErr, errMsg
 
 
 def main():
+
+    # -------------------------------------
+    # Example of use of SimpleDambrk class
+    # -------------------------------------
+
+    # SimpleDambrk class can alternatively also be imported and used by other python modules
 
     mydb_path_template='..'+ os.sep + 'template'+os.sep+ 'GeoDB_template.sqlite'
 
     myGDB_user='..' + os.sep + 'db'+os.sep+ 'USER_GeoDB.sqlite'
 
+    myGDB_user_dir= os.path.dirname(myGDB_user)
+
+    if not os.path.exists(myGDB_user_dir):
+        os.mkdir(myGDB_user_dir)
+
     if not os.path.exists(myGDB_user):
         shutil.copy (mydb_path_template, myGDB_user)
 
+    start_time = time.time()
 
     MySimpleDambrk=SimpleDambrk(myGDB_user)
 
     # ==================
     # San Giuliano  dam
     # ==================
-    ID_Diga=449
-    Nome='SAN GIULIANO'
-    TipoDiga='G'
-    Volume_mlnm3=94.7
-    Altezza_m=38.3
-    Breccia_m=105.0
-    x=1138399.4
-    y=4522061.8
+
+    fromshp=1
+
+    if fromshp>0:
+
+        DamID=449
+        shpfile='..' + os.sep+'shp'+os.sep+'dams.shp'
+
+        NotErr, errMsg= MySimpleDambrk.add_dam_from_shp(DamID,shpfile)
+
+        if NotErr:
+            CurrentID=MySimpleDambrk.DamID
+
+            txt='Current DamID=%d : name=%s' %  (CurrentID,MySimpleDambrk.Name)
+        else:
+            txt='Upload dam data from shpafile err: %s' % errMsg
+        print (txt)
+
+    else:
+
+        DamID=449
+        Name='SAN GIULIANO'
+        DamType='G'
+        ResVolMcm=94.7
+        Height_m=38.3
+        BreachWidth=105.0
+        x=1138399.4
+        y=4522061.8
+
+        # ==================
+        # add dam
+        # ==================
+        MySimpleDambrk.add_dam(DamID,Name,DamType,ResVolMcm,Height_m,BreachWidth,x,y)
+
+        CurrentID=MySimpleDambrk.DamID
+
+        txt='Current DamID=%d : name=%s' %  (CurrentID,MySimpleDambrk.Name)
+        print (txt)
 
     # ==================
-    # add dam
+    # set current dam
     # ==================
-    MySimpleDambrk.add_dam(ID_Diga,Nome,TipoDiga,Volume_mlnm3,Altezza_m,Breccia_m,x,y)
-
-    CurrentID=MySimpleDambrk.ID_Diga
-
-    txt='Current ID_Diga=%d : name=%s' %  (CurrentID,MySimpleDambrk.Name)
+    NotErr, errMsg =  MySimpleDambrk.set_dam(DamID)
+    if NotErr:
+        txt='Current DamID=%d' %  (MySimpleDambrk.DamID)
+    else:
+        txt='Setting DamID err: %s' % errMsg
+        sys.exit(txt)
     print (txt)
-
-    # ==================
-    # set dam
-    # ==================
-    MySimpleDambrk.set_dam(ID_Diga)
 
     # ==================
     # Set DTM
     # ==================
-    DTMfile='..' + os.sep+'data'+os.sep+'DTM_clip.tif'
+    DTMfile='..' + os.sep+'raster'+os.sep+'DTM_clip.tif'
     NotErr, errMsg= MySimpleDambrk.set_DTM(DTMfile)
 
     if NotErr:
-        txt='Current ID_Diga=%d : set DTM' %  (MySimpleDambrk.ID_Diga)
+        txt='Current DamID=%d : set DTM' %  (MySimpleDambrk.DamID)
     else:
         txt='Setting DTM err: %s' % errMsg
     print (txt)
@@ -806,7 +928,7 @@ def main():
     NotErr, errMsg= MySimpleDambrk.add_StudyArea(shpfile)
 
     if NotErr:
-        txt='Current ID_Diga=%d : added study area' %  (MySimpleDambrk.ID_Diga)
+        txt='Current DamID=%d : added study area' %  (MySimpleDambrk.DamID)
     else:
         txt='Adding study err: %s' % errMsg
     print (txt)
@@ -819,7 +941,7 @@ def main():
     NotErr, errMsg= MySimpleDambrk.add_RiverPath(shpfile)
 
     if NotErr:
-        txt='Current ID_Diga=%d : added river path' %  (MySimpleDambrk.ID_Diga)
+        txt='Current DamID=%d : added river path' %  (MySimpleDambrk.DamID)
     else:
         txt='Adding river path err: %s' % errMsg
     print (txt)
@@ -832,7 +954,7 @@ def main():
     NotErr, errMsg= MySimpleDambrk.add_MainCrossSec(shpfile)
 
     if NotErr:
-        txt='Current ID_Diga=%d : added main cross sec' %  (MySimpleDambrk.ID_Diga)
+        txt='Current DamID=%d : added main cross sec' %  (MySimpleDambrk.DamID)
     else:
         txt='Adding main cross sec err: %s' % errMsg
     print (txt)
@@ -843,7 +965,7 @@ def main():
 
     NotErr, errMsg= MySimpleDambrk.Calc_IntermediatePoints()
     if NotErr:
-        txt='Current ID_Diga=%d : made intermediate points' %  (MySimpleDambrk.ID_Diga)
+        txt='Current DamID=%d : made intermediate points' %  (MySimpleDambrk.DamID)
     else:
         txt='Making intermediate points err: %s' % errMsg
     print (txt)
@@ -854,7 +976,7 @@ def main():
 
     NotErr, errMsg= MySimpleDambrk.Calc_IntermediateCrossSections()
     if NotErr:
-        txt='Current ID_Diga=%d : made intermediate points' %  (MySimpleDambrk.ID_Diga)
+        txt='Current DamID=%d : made intermediate points' %  (MySimpleDambrk.DamID)
     else:
         txt='Making intermediate points err: %s' % errMsg
     print (txt)
@@ -865,7 +987,7 @@ def main():
 
     NotErr, errMsg= MySimpleDambrk.Calc_ValleyGeometry()
     if NotErr:
-        txt='Current ID_Diga=%d : made Geometry of Valley' %  (MySimpleDambrk.ID_Diga)
+        txt='Current DamID=%d : made Geometry of Valley' %  (MySimpleDambrk.DamID)
     else:
         txt='Making Geometry of Valley err: %s' % errMsg
     print (txt)
@@ -876,11 +998,25 @@ def main():
 
     NotErr, errMsg= MySimpleDambrk.DamBreakPropagation()
     if NotErr:
-        txt='Current ID_Diga=%d : calc Dam Break propagation' %  (MySimpleDambrk.ID_Diga)
+        txt='Current DamID=%d : calc Dam Break propagation' %  (MySimpleDambrk.DamID)
     else:
         txt='Making cal Dam Break propagation err: %s' % errMsg
     print (txt)
 
+    # =================================
+    # Calc Floading area
+    # =================================
+
+    NotErr, errMsg= MySimpleDambrk.CalcFloodingArea()
+    if NotErr:
+        txt='Current DamID=%d : calc floading area' %  (MySimpleDambrk.DamID)
+    else:
+        txt='Making cal calc floading area err: %s' % errMsg
+    print (txt)
+
+
+    elapsed_time = time.time() - start_time
+    print ('elapsed time=  %s sec' % elapsed_time)
 
 if __name__ == '__main__':
     main()
