@@ -64,10 +64,14 @@ except ImportError:
 
 try:
     from osgeo import ogr
-    from osgeo.osr import osr
 except:
     import ogr
+
+try:
+    from osgeo import osr
+except:
     import osr
+
 import numpy as np
 import math
 import matplotlib.pyplot as plt
@@ -499,7 +503,7 @@ def SetIntermediatePoints(mydb_path_user,PathFiles,fileDEM,DamID,DistanzaSezInte
     else:
         DominioEPSG=32632
 
-    dest_srs = ogr.osr.SpatialReference()
+    dest_srs = osr.SpatialReference()
     dest_srs.ImportFromEPSG(DominioEPSG)
 
 
@@ -1126,7 +1130,7 @@ def SetCrossSec_2(mydb_path_user,PathFiles,ClipDEM,DamID):
     else:
         DominioEPSG=32632
 
-    dest_srs = ogr.osr.SpatialReference()
+    dest_srs = osr.SpatialReference()
     dest_srs.ImportFromEPSG(DominioEPSG)
 
     sql='SELECT TotalLength,ST_AsText(geom) FROM %s WHERE DamID=%d' % (NomeTabellaLinee,DamID)
