@@ -42,9 +42,12 @@ except ImportError:
 
 try:
     from osgeo import ogr
-    from osgeo.osr import osr
 except:
     import ogr
+
+try:
+    from osgeo import osr
+except:
     import osr
 
 import math

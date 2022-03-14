@@ -51,10 +51,12 @@ except:
 
 try:
     from osgeo import ogr
-    from osgeo.osr import osr
+except:
+    import osr
+try:
+    from osgeo import osr
 except:
     import ogr
-    import osr
 
 import matplotlib.pyplot as plt
 from matplotlib.pylab import *
